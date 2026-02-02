@@ -112,7 +112,7 @@ export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matri
     return (
         <div>
             <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
-                {title && <h3 className="text-lg font-semibold text-slate-700 dark:text-cyan-300">{title}</h3>}
+                {title && <h3 className="text-lg font-semibold text-primary">{title}</h3>}
                  <div className="flex gap-2">
                     <button onClick={handlePaste} className="text-xs py-1 px-3 rounded-xl glass-btn">Paste from Clipboard</button>
                     <button onClick={onSave} className="text-xs py-1 px-3 rounded-xl glass-btn glass-btn-primary">Save to Library</button>
@@ -137,8 +137,14 @@ export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matri
                                     className={`matrix-cell-style border rounded-md text-center glass-input focus:ring-0 transition-all hover:border-cyan-300 
                                     ${isAugmentedCol(c) ? 'bg-white/10' : ''}
                                     ${validationErrors[r]?.[c] ? '!border-red-500 ring-red-500/50' : ''}`}
+                                    aria-invalid={validationErrors[r]?.[c] || undefined}
                                     aria-label={`Matrix cell row ${r+1} column ${c+1}`}
                                 />
+                                {validationErrors[r]?.[c] && (
+                                    <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-red-400 whitespace-nowrap">
+                                        Invalid
+                                    </span>
+                                )}
                             </div>
                         ))
                     )}

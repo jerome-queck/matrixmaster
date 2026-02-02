@@ -7,8 +7,10 @@ import { LatexRenderer } from './components/LatexRenderer';
 import { OperationBuilder } from './components/OperationBuilder';
 import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
-import { calculate, calculateMatrixOperations, calculateDeterminantOfOperation, parseInput, stringifySymbolicFraction, recalculateDetailsForSection, expressionToBuilderNodes, builderNodesToExpression, calculateRank, calculateTrace, toNumericMatrix, numericRank, numericTrace, numericLU, numericQR, numericSVD, numericEigen, formatMatrixToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv } from './services/matrixService';
-import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, MatrixAnalysisResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult } from './types';
+import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, numericConditionNumber, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
+import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult } from './types';
+import { useMatrixWorker } from './hooks/useMatrixWorker';
+import { useBatchRunner } from './hooks/useBatchRunner';
 
 type AllResultTypes = AnyResult;
 
@@ -24,8 +26,8 @@ const cssVarMap: Record<keyof CustomThemeColors, string> = {
     borderColor: '--border-color', cardBgStart: '--card-bg-start', cardBgEnd: '--card-bg-end', buttonBg: '--button-bg', inputBg: '--input-bg'
 };
 const defaultCustomColors: CustomThemeColors = {
-    bgColor: '#0f172a', textColor: '#e2e8f0', primaryTextColor: '#818cf8', secondaryTextColor: '#94a3b8',
-    borderColor: '#334155', cardBgStart: '#1e293b', cardBgEnd: '#0f172a', buttonBg: '#4f46e5', inputBg: '#334155'
+    bgColor: '#0b0b0f', textColor: '#f2f2f7', primaryTextColor: '#0a84ff', secondaryTextColor: '#8e8e93',
+    borderColor: '#2c2c2e', cardBgStart: '#1c1c1e', cardBgEnd: '#121217', buttonBg: '#0a84ff', inputBg: '#1c1c1e'
 };
 const defaultNumberFormat: NumberFormatOptions = {
     digits: 6,
@@ -256,6 +258,7 @@ const App: React.FC = () => {
         </button>
     );
 
+    const { runWorkerRequest } = useMatrixWorker();
 
     // System Solver State
     const [rows, setRows] = useState<number | ''>(3);
@@ -308,6 +311,7 @@ const App: React.FC = () => {
     const [importMatrixKey, setImportMatrixKey] = useState('solver');
     const [librarySearch, setLibrarySearch] = useState('');
     const [libraryFolderFilter, setLibraryFolderFilter] = useState('all');
+    const [libraryView, setLibraryView] = useState<'list' | 'grid'>('grid');
     const [compareLeftKey, setCompareLeftKey] = useState('solver');
     const [compareRightKey, setCompareRightKey] = useState('analysis');
     const [theme, setTheme] = useState('dark');
@@ -339,6 +343,53 @@ const App: React.FC = () => {
     const [isDocsOpen, setDocsOpen] = useState(false);
     const [printMode, setPrintMode] = useState<'none' | 'report' | 'batch' | 'docs'>('none');
     const [infoState, setInfoState] = useState<{ open: boolean; key: keyof typeof INFO_CONTENT | null }>({ open: false, key: null });
+    const [isCommandOpen, setCommandOpen] = useState(false);
+    const [commandQuery, setCommandQuery] = useState('');
+    const [splitRatio, setSplitRatio] = useState(0.55);
+    const [isResizing, setIsResizing] = useState(false);
+    const splitContainerRef = useRef<HTMLDivElement | null>(null);
+    const [isPracticeOpen, setPracticeOpen] = useState(false);
+    const [practiceMatrix, setPracticeMatrix] = useState<ValidMatrix | null>(null);
+    const [practiceB, setPracticeB] = useState<ValidMatrix | null>(null);
+    const [practiceSolution, setPracticeSolution] = useState<number[]>([]);
+    const [practiceGuess, setPracticeGuess] = useState<string[]>([]);
+    const [practiceFeedback, setPracticeFeedback] = useState<string | null>(null);
+    const [isBlockOpen, setBlockOpen] = useState(false);
+    const [blockTarget, setBlockTarget] = useState('analysis');
+    const [blockKeys, setBlockKeys] = useState({ tl: 'A', tr: 'B', bl: 'C', br: 'D' });
+    const [isSimplifierOpen, setSimplifierOpen] = useState(false);
+    const [simplifyInput, setSimplifyInput] = useState('1/2');
+    const [simplifyTrace, setSimplifyTrace] = useState<any[]>([]);
+    const [simplifyOutput, setSimplifyOutput] = useState<string>('');
+    const [isMatrixFunctionsOpen, setMatrixFunctionsOpen] = useState(false);
+    const [matrixFuncTarget, setMatrixFuncTarget] = useState('analysis');
+    const [matrixFuncType, setMatrixFuncType] = useState<'exp' | 'log' | 'sqrt'>('exp');
+    const [matrixFuncResult, setMatrixFuncResult] = useState<number[][] | null>(null);
+    const [matrixFuncError, setMatrixFuncError] = useState<string | null>(null);
+    const [isJordanOpen, setJordanOpen] = useState(false);
+    const [jordanTarget, setJordanTarget] = useState('analysis');
+    const [jordanResult, setJordanResult] = useState<{ J: number[][]; P: number[][]; eigenvalues: number[]; warning?: string } | null>(null);
+    const [isIterativeOpen, setIterativeOpen] = useState(false);
+    const [iterativeTarget, setIterativeTarget] = useState('solver');
+    const [iterativeMethod, setIterativeMethod] = useState<'jacobi' | 'gs' | 'cg' | 'gmres'>('jacobi');
+    const [iterativeTol, setIterativeTol] = useState(1e-6);
+    const [iterativeMaxIter, setIterativeMaxIter] = useState(50);
+    const [iterativePrecond, setIterativePrecond] = useState<'none' | 'jacobi' | 'ilu'>('none');
+    const [iterativeResult, setIterativeResult] = useState<{ x: number[]; residuals: number[] } | null>(null);
+    const [iterativeError, setIterativeError] = useState<string | null>(null);
+    const [isExerciseOpen, setExerciseOpen] = useState(false);
+    const [exercisePacks, setExercisePacks] = useState<any[]>([]);
+    const [activePackId, setActivePackId] = useState<string | null>(null);
+    const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
+    const [exerciseAnswer, setExerciseAnswer] = useState<string[]>([]);
+    const [exerciseFeedback, setExerciseFeedback] = useState<string | null>(null);
+    const [isPluginsOpen, setPluginsOpen] = useState(false);
+    const [plugins, setPlugins] = useState<any[]>([]);
+    const [isVersionsOpen, setVersionsOpen] = useState(false);
+    const [projectVersions, setProjectVersions] = useState<any[]>([]);
+    const [versionName, setVersionName] = useState('');
+    const [isStepCompareOpen, setStepCompareOpen] = useState(false);
+    const [stepCompareResult, setStepCompareResult] = useState<string | null>(null);
 
     // Presets
     const [presetTarget, setPresetTarget] = useState('analysis');
@@ -356,12 +407,6 @@ const App: React.FC = () => {
     const [clipboardTarget, setClipboardTarget] = useState('analysis');
     const [clipboardFormat, setClipboardFormat] = useState<'csv' | 'latex' | 'json'>('csv');
 
-    // Batch Runner
-    const [batchMode, setBatchMode] = useState<'analysis' | 'expression'>('analysis');
-    const [batchExpression, setBatchExpression] = useState('A');
-    const [batchSelectedIds, setBatchSelectedIds] = useState<string[]>([]);
-    const [batchResults, setBatchResults] = useState<{ id: string; name: string; result?: AnyResult; error?: string }[]>([]);
-    const [batchRunning, setBatchRunning] = useState(false);
     const [recipeName, setRecipeName] = useState('');
     const [assumptionVar, setAssumptionVar] = useState('');
     const [assumptionConstraint, setAssumptionConstraint] = useState<VariableAssumption['constraint']>('nonzero');
@@ -456,6 +501,32 @@ const App: React.FC = () => {
             else setReportOptions(defaultReportOptions);
         } catch (e) { console.error("Failed to load report options", e); setReportOptions(defaultReportOptions); }
 
+        try {
+            const savedPlugins = getItem('plugins');
+            if (savedPlugins) setPlugins(JSON.parse(savedPlugins));
+            else setPlugins([]);
+        } catch (e) { console.error("Failed to load plugins", e); setPlugins([]); }
+
+        try {
+            const savedVersions = getItem('projectVersions');
+            if (savedVersions) setProjectVersions(JSON.parse(savedVersions));
+            else setProjectVersions([]);
+        } catch (e) { console.error("Failed to load project versions", e); setProjectVersions([]); }
+
+        try {
+            const savedExercises = getItem('exercisePacks');
+            if (savedExercises) setExercisePacks(JSON.parse(savedExercises));
+            else setExercisePacks([]);
+        } catch (e) { console.error("Failed to load exercise packs", e); setExercisePacks([]); }
+
+        try {
+            const savedSplit = getItem('layoutSplit');
+            if (savedSplit) {
+                const parsed = parseFloat(savedSplit);
+                if (Number.isFinite(parsed)) setSplitRatio(Math.min(0.75, Math.max(0.25, parsed)));
+            }
+        } catch (e) { console.error("Failed to load layout split", e); }
+
         setProfileLoaded(true);
     };
 
@@ -499,25 +570,30 @@ const App: React.FC = () => {
         }
     }, []);
 
+
     useEffect(() => {
         // Apply theme and density to HTML element
         document.documentElement.setAttribute('data-density', density);
-        if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'density'), density);
-        localStorage.setItem(profileStorageKey(activeProfile, 'theme'), theme);
 
+        document.body.setAttribute('data-theme', theme);
         if (theme === 'custom') {
             document.documentElement.removeAttribute('data-theme');
             for (const [key, value] of Object.entries(customThemeColors)) {
                 document.documentElement.style.setProperty(cssVarMap[key as keyof CustomThemeColors], value);
             }
-            localStorage.setItem(profileStorageKey(activeProfile, 'customTheme'), JSON.stringify(customThemeColors));
         } else {
             document.documentElement.setAttribute('data-theme', theme);
             // Clean up custom styles when switching back to a default theme
             for (const cssVar of Object.values(cssVarMap)) {
                 document.documentElement.style.removeProperty(cssVar);
             }
+        }
+
+        if (!profileLoaded) return;
+        localStorage.setItem(profileStorageKey(activeProfile, 'density'), density);
+        localStorage.setItem(profileStorageKey(activeProfile, 'theme'), theme);
+        if (theme === 'custom') {
+            localStorage.setItem(profileStorageKey(activeProfile, 'customTheme'), JSON.stringify(customThemeColors));
         }
     }, [theme, density, customThemeColors, activeProfile, profileLoaded]);
 
@@ -594,11 +670,100 @@ const App: React.FC = () => {
         localStorage.setItem(profileStorageKey(activeProfile, 'reportOptions'), JSON.stringify(reportOptions));
     }, [reportOptions, activeProfile, profileLoaded]);
 
+    useEffect(() => {
+        if (!profileLoaded) return;
+        localStorage.setItem(profileStorageKey(activeProfile, 'plugins'), JSON.stringify(plugins));
+    }, [plugins, activeProfile, profileLoaded]);
+
+    useEffect(() => {
+        if (!profileLoaded) return;
+        localStorage.setItem(profileStorageKey(activeProfile, 'projectVersions'), JSON.stringify(projectVersions));
+    }, [projectVersions, activeProfile, profileLoaded]);
+
+    useEffect(() => {
+        if (!profileLoaded) return;
+        localStorage.setItem(profileStorageKey(activeProfile, 'exercisePacks'), JSON.stringify(exercisePacks));
+    }, [exercisePacks, activeProfile, profileLoaded]);
+
+    useEffect(() => {
+        if (!profileLoaded) return;
+        localStorage.setItem(profileStorageKey(activeProfile, 'layoutSplit'), String(splitRatio));
+    }, [splitRatio, activeProfile, profileLoaded]);
+
+    useEffect(() => {
+        if (!isResizing) return;
+        const handleMove = (event: MouseEvent) => {
+            const container = splitContainerRef.current;
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const next = (event.clientX - rect.left) / rect.width;
+            const clamped = Math.min(0.75, Math.max(0.25, next));
+            setSplitRatio(clamped);
+        };
+        const handleUp = () => setIsResizing(false);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+        };
+    }, [isResizing]);
+
+    useEffect(() => {
+        const pack = exercisePacks.find(p => p.id === activePackId);
+        const exercise = pack?.exercises?.[activeExerciseIndex];
+        const size = exercise?.solution?.length || 0;
+        setExerciseAnswer(Array.from({ length: size }, () => ''));
+        setExerciseFeedback(null);
+    }, [activePackId, activeExerciseIndex, exercisePacks]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            const key = event.key.toLowerCase();
+            if ((event.metaKey || event.ctrlKey) && key === 'k') {
+                event.preventDefault();
+                setCommandOpen(true);
+                return;
+            }
+            if ((event.metaKey || event.ctrlKey) && key === 'enter') {
+                event.preventDefault();
+                handleCalculate();
+                return;
+            }
+            if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === 'r') {
+                event.preventDefault();
+                handleReset();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleCalculate, handleReset]);
+
     // --- Derived State & Effects ---
 
     const extractMatrixNames = useCallback((expr: string) => {
         return [...new Set(expr.match(/[A-Z]/g) || [])].sort();
     }, []);
+
+    const {
+        batchMode,
+        setBatchMode,
+        batchExpression,
+        setBatchExpression,
+        batchSelectedIds,
+        setBatchSelectedIds,
+        batchResults,
+        batchRunning,
+        handleRunBatch
+    } = useBatchRunner({
+        library,
+        analysisMode,
+        analysisOptions,
+        extractMatrixNames,
+        parseSavedMatrixToValid,
+        runWorkerRequest,
+        setError
+    });
 
     const matrixNamesInExpression = useMemo(() => {
         return extractMatrixNames(expression);
@@ -752,6 +917,290 @@ const App: React.FC = () => {
             }
         }
         return false;
+    };
+
+    function parseSavedMatrix(saved: SavedMatrix): Matrix {
+        return saved.matrix.map(row => row.map(cell => (cell ? parseInput(cell) : null)));
+    }
+
+    function parseSavedMatrixToValid(saved: SavedMatrix): ValidMatrix {
+        const matrix = parseSavedMatrix(saved);
+        if (matrixHasNull(matrix)) {
+            throw new Error(`Matrix ${saved.name} contains empty cells.`);
+        }
+        return matrix as ValidMatrix;
+    }
+
+    const generatePracticeSystem = (size: number) => {
+        const toSF = (value: number) => parseInput(String(value));
+        const randInt = () => {
+            const val = Math.floor(Math.random() * 9) - 4;
+            return val === 0 ? 1 : val;
+        };
+        let matrix: ValidMatrix = [];
+        let solution: number[] = [];
+        let bVector: number[] = [];
+
+        while (true) {
+            matrix = Array.from({ length: size }, () => Array.from({ length: size }, () => toSF(randInt())));
+            const rank = calculateRank(matrix);
+            if (rank === size) {
+                solution = Array.from({ length: size }, () => randInt());
+                bVector = matrix.map(row => row.reduce((sum, cell, idx) => sum + (symbolicFractionToNumber(cell) || 0) * solution[idx], 0));
+                break;
+            }
+        }
+
+        const bMatrix: ValidMatrix = bVector.map(value => [toSF(value)]);
+        setPracticeMatrix(matrix);
+        setPracticeB(bMatrix);
+        setPracticeSolution(solution);
+        setPracticeGuess(Array.from({ length: size }, () => ''));
+        setPracticeFeedback(null);
+    };
+
+    const handleCheckPractice = () => {
+        if (!practiceSolution.length) return;
+        try {
+            const parsed = practiceGuess.map(val => symbolicFractionToNumber(parseInput(val.trim() || '0')));
+            if (parsed.some(v => v === null)) {
+                setPracticeFeedback('All entries must be numeric.');
+                return;
+            }
+            const matches = parsed.every((v, idx) => Math.abs((v || 0) - practiceSolution[idx]) < 1e-9);
+            setPracticeFeedback(matches ? 'Correct! Nice work.' : 'Not quite—check your arithmetic and try again.');
+        } catch (e) {
+            setPracticeFeedback(e instanceof Error ? e.message : 'Invalid input.');
+        }
+    };
+
+    const handleLoadPracticeToSolver = () => {
+        if (!practiceMatrix || !practiceB) return;
+        const size = practiceMatrix.length;
+        const augmented: Matrix = practiceMatrix.map((row, r) => [...row, practiceB[r][0]]);
+        setSystemType('non-homogeneous');
+        setRows(size);
+        setCols(size);
+        setSolverMatrix(augmented);
+        bumpSolverMatrixKey();
+        setPracticeFeedback('Loaded into System Solver.');
+    };
+
+    const handleSimplify = () => {
+        try {
+            const sf = parseInput(simplifyInput);
+            const { result, steps } = simplifySymbolicFractionWithTrace(sf);
+            setSimplifyOutput(formatSymbolicFractionToLatex(result));
+            setSimplifyTrace(steps);
+        } catch (e) {
+            setSimplifyOutput('Error');
+            setSimplifyTrace([]);
+            setError(e instanceof Error ? e.message : 'Failed to simplify.');
+        }
+    };
+
+    const handleComputeMatrixFunction = () => {
+        try {
+            const matrix = resolveMatrixByKey(matrixFuncTarget);
+            if (!matrix) throw new Error('Select a matrix.');
+            const numeric = toNumericMatrix(matrix as ValidMatrix);
+            let result: number[][];
+            if (matrixFuncType === 'exp') result = numericMatrixExp(numeric);
+            else if (matrixFuncType === 'log') result = numericMatrixLog(numeric);
+            else result = numericMatrixSqrt(numeric);
+            setMatrixFuncResult(result);
+            setMatrixFuncError(null);
+        } catch (e) {
+            setMatrixFuncResult(null);
+            setMatrixFuncError(e instanceof Error ? e.message : 'Failed to compute matrix function.');
+        }
+    };
+
+    const handleComputeJordan = () => {
+        try {
+            const matrix = resolveMatrixByKey(jordanTarget);
+            if (!matrix) throw new Error('Select a matrix.');
+            const numeric = toNumericMatrix(matrix as ValidMatrix);
+            const result = numericJordanForm(numeric);
+            setJordanResult(result);
+        } catch (e) {
+            setJordanResult(null);
+            setError(e instanceof Error ? e.message : 'Failed to compute Jordan form.');
+        }
+    };
+
+    const applyPreconditioner = (A: number[][], b: number[]) => {
+        if (iterativePrecond === 'none') return { A, b };
+        if (iterativePrecond === 'jacobi') {
+            const diag = A.map((row, i) => row[i] || 1);
+            const A2 = A.map((row, i) => row.map(v => v / diag[i]));
+            const b2 = b.map((v, i) => v / diag[i]);
+            return { A: A2, b: b2 };
+        }
+        // Simple ILU0 approximation via LU
+        const { L, U } = numericLU(A);
+        const solveLower = (y: number[]) => {
+            const x = Array(y.length).fill(0);
+            for (let i = 0; i < y.length; i++) {
+                let sum = y[i];
+                for (let j = 0; j < i; j++) sum -= L[i][j] * x[j];
+                x[i] = sum / (L[i][i] || 1);
+            }
+            return x;
+        };
+        const solveUpper = (y: number[]) => {
+            const x = Array(y.length).fill(0);
+            for (let i = y.length - 1; i >= 0; i--) {
+                let sum = y[i];
+                for (let j = i + 1; j < y.length; j++) sum -= U[i][j] * x[j];
+                x[i] = sum / (U[i][i] || 1);
+            }
+            return x;
+        };
+        const applyMInv = (vec: number[]) => solveUpper(solveLower(vec));
+        const A2 = A.map(row => applyMInv(row));
+        const b2 = applyMInv(b);
+        return { A: A2, b: b2 };
+    };
+
+    const handleRunIterative = () => {
+        try {
+            const matrix = resolveMatrixByKey(iterativeTarget);
+            if (!matrix) throw new Error('Select a matrix.');
+            const numeric = toNumericMatrix(matrix as ValidMatrix);
+            let b: number[] = [];
+            if (systemType === 'non-homogeneous' && iterativeTarget === 'solver') {
+                const cols = numeric[0]?.length || 0;
+                b = numeric.map(row => row[cols - 1]);
+            } else {
+                b = numeric.map(() => 1);
+            }
+            const { A, b: b2 } = applyPreconditioner(numeric, b);
+            let result;
+            if (iterativeMethod === 'jacobi') result = numericJacobi(A, b2, iterativeTol, iterativeMaxIter);
+            else if (iterativeMethod === 'gs') result = numericGaussSeidel(A, b2, iterativeTol, iterativeMaxIter);
+            else if (iterativeMethod === 'cg') result = numericConjugateGradient(A, b2, iterativeTol, iterativeMaxIter);
+            else result = numericGMRES(A, b2, iterativeTol, iterativeMaxIter);
+            setIterativeResult(result);
+            setIterativeError(null);
+        } catch (e) {
+            setIterativeResult(null);
+            setIterativeError(e instanceof Error ? e.message : 'Iterative solver failed.');
+        }
+    };
+
+    const handleImportExercisePack = async (file: File) => {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!parsed.id || !Array.isArray(parsed.exercises)) {
+            throw new Error('Invalid exercise pack.');
+        }
+        setExercisePacks(prev => [...prev.filter(p => p.id !== parsed.id), parsed]);
+        setActivePackId(parsed.id);
+        setActiveExerciseIndex(0);
+        setExerciseAnswer([]);
+        setExerciseFeedback(null);
+    };
+
+    const handleCheckExercise = () => {
+        const pack = exercisePacks.find(p => p.id === activePackId);
+        if (!pack) return;
+        const exercise = pack.exercises[activeExerciseIndex];
+        if (!exercise) return;
+        const target = exercise.solution || [];
+        const parsed = exerciseAnswer.map(val => {
+            try { return symbolicFractionToNumber(parseInput(val.trim() || '0')) || 0; } catch { return NaN; }
+        });
+        if (parsed.some(v => !Number.isFinite(v))) {
+            setExerciseFeedback('Invalid answer format.');
+            return;
+        }
+        const correct = parsed.every((v, i) => Math.abs(v - target[i]) < 1e-6);
+        setExerciseFeedback(correct ? 'Correct!' : 'Incorrect. Try again.');
+    };
+
+    const handleImportPlugin = async (file: File) => {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!parsed.id || !Array.isArray(parsed.commands)) {
+            throw new Error('Invalid plugin format.');
+        }
+        setPlugins(prev => [...prev.filter(p => p.id !== parsed.id), parsed]);
+    };
+
+    const handleSaveVersion = () => {
+        const trimmed = versionName.trim();
+        if (!trimmed) return;
+        const state = buildSharedState();
+        const entry = { id: `ver_${Date.now()}`, name: trimmed, createdAt: Date.now(), state };
+        setProjectVersions(prev => [entry, ...prev]);
+        setVersionName('');
+    };
+
+    const handleRestoreVersion = (id: string) => {
+        const entry = projectVersions.find(v => v.id === id);
+        if (!entry) return;
+        handleReset();
+        applySharedState(entry.state);
+    };
+
+    const handleCompareSteps = async (file: File) => {
+        if (!results || !('gaussJordanSteps' in results)) {
+            setStepCompareResult('No solver steps available.');
+            return;
+        }
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed.steps)) {
+            setStepCompareResult('Invalid steps file.');
+            return;
+        }
+        const solverSteps = (results as CalculationResult).gaussJordanSteps || [];
+        const mismatches: number[] = [];
+        parsed.steps.forEach((step: any, idx: number) => {
+            const expected = solverSteps[idx]?.matrix;
+            if (!expected) return;
+            const same = JSON.stringify(expected) === JSON.stringify(step.matrix);
+            if (!same) mismatches.push(idx + 1);
+        });
+        setStepCompareResult(mismatches.length === 0 ? 'All steps match!' : `Mismatched steps: ${mismatches.join(', ')}`);
+    };
+
+    const buildBlockMatrix = (tl: Matrix, tr: Matrix, bl: Matrix, br: Matrix): Matrix => {
+        if (matrixHasNull(tl) || matrixHasNull(tr) || matrixHasNull(bl) || matrixHasNull(br)) {
+            throw new Error('All block matrices must be fully filled.');
+        }
+        const topRows = tl.length;
+        const bottomRows = bl.length;
+        const leftCols = tl[0]?.length || 0;
+        const rightCols = tr[0]?.length || 0;
+        if (topRows !== tr.length) throw new Error('Top blocks must have the same number of rows.');
+        if (bottomRows !== br.length) throw new Error('Bottom blocks must have the same number of rows.');
+        if (leftCols !== bl[0]?.length) throw new Error('Left blocks must have the same number of columns.');
+        if (rightCols !== br[0]?.length) throw new Error('Right blocks must have the same number of columns.');
+        const result: Matrix = [];
+        for (let r = 0; r < topRows; r++) {
+            result.push([...tl[r], ...tr[r]]);
+        }
+        for (let r = 0; r < bottomRows; r++) {
+            result.push([...bl[r], ...br[r]]);
+        }
+        return result;
+    };
+
+    const handleApplyBlockMatrix = () => {
+        try {
+            const tl = resolveMatrixByKey(blockKeys.tl);
+            const tr = resolveMatrixByKey(blockKeys.tr);
+            const bl = resolveMatrixByKey(blockKeys.bl);
+            const br = resolveMatrixByKey(blockKeys.br);
+            if (!tl || !tr || !bl || !br) throw new Error('Select all four blocks.');
+            const matrix = buildBlockMatrix(tl, tr, bl, br);
+            applyMatrixToTarget(matrix, blockTarget);
+            setBlockOpen(false);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Failed to build block matrix.');
+        }
     };
 
     const serializeMatrixToString = (matrix: Matrix): string => {
@@ -1009,7 +1458,7 @@ const App: React.FC = () => {
                     {matrix.map((row, r) => row.map((cell, c) => {
                         const isDiff = diff?.[r]?.[c];
                         return (
-                            <div key={`${r}-${c}`} className={`px-2 py-1 text-xs rounded border ${isDiff ? 'bg-red-100 border-red-300 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200' : 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-200'}`}>
+                            <div key={`${r}-${c}`} className={`px-2 py-1 text-xs rounded border ${isDiff ? 'bg-red-100 border-red-300 text-red-800' : 'glass-input text-ink'}`}>
                                 {stringifySymbolicFraction(cell)}
                             </div>
                         );
@@ -1474,18 +1923,6 @@ const App: React.FC = () => {
         }
     };
 
-    const parseSavedMatrix = (saved: SavedMatrix): Matrix => {
-        return saved.matrix.map(row => row.map(cell => (cell ? parseInput(cell) : null)));
-    };
-
-    const parseSavedMatrixToValid = (saved: SavedMatrix): ValidMatrix => {
-        const matrix = parseSavedMatrix(saved);
-        if (matrixHasNull(matrix)) {
-            throw new Error(`Matrix ${saved.name} contains empty cells.`);
-        }
-        return matrix as ValidMatrix;
-    };
-
     const handleSaveRecipe = (name: string) => {
         const trimmed = name.trim();
         if (!trimmed) {
@@ -1528,61 +1965,6 @@ const App: React.FC = () => {
         setVariableAssumptions(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handleRunBatch = () => {
-        setBatchRunning(true);
-        setError(null);
-        const selected = library.filter(item => batchSelectedIds.includes(item.id));
-        if (selected.length === 0) {
-            setBatchRunning(false);
-            setError('Select at least one matrix to run.');
-            return;
-        }
-
-        const expressionNames = extractMatrixNames(batchExpression);
-        if (batchMode === 'expression' && expressionNames.some(name => name !== 'A')) {
-            setBatchRunning(false);
-            setError('Batch expression mode currently supports only matrix A.');
-            return;
-        }
-
-        const results = selected.map(item => {
-            try {
-                const validMatrix = parseSavedMatrixToValid(item);
-                if (batchMode === 'analysis') {
-                    const warnings: string[] = [];
-                    if (analysisMode === 'exact') {
-                        const rank = calculateRank(validMatrix);
-                        const trace = validMatrix.length === validMatrix[0]?.length ? calculateTrace(validMatrix) : undefined;
-                        if (!trace) warnings.push('Trace is only defined for square matrices.');
-                        const result: MatrixAnalysisResult = { kind: 'analysis', mode: 'exact', rank, trace, warnings };
-                        return { id: item.id, name: item.name, result };
-                    }
-                    const numericMatrix = toNumericMatrix(validMatrix);
-                    const rank = numericRank(numericMatrix);
-                    let trace: number | undefined;
-                    if (numericMatrix.length === numericMatrix[0]?.length) trace = numericTrace(numericMatrix);
-                    else warnings.push('Trace is only defined for square matrices.');
-                    const result: MatrixAnalysisResult = { kind: 'analysis', mode: 'numeric', rank, trace, warnings };
-                    if (analysisOptions.computeLU && numericMatrix.length === numericMatrix[0]?.length) result.lu = numericLU(numericMatrix);
-                    if (analysisOptions.computeQR) result.qr = numericQR(numericMatrix);
-                    if (analysisOptions.computeSVD) result.svd = numericSVD(numericMatrix);
-                    if (analysisOptions.computeEigen && numericMatrix.length === numericMatrix[0]?.length) result.eigen = numericEigen(numericMatrix);
-                    return { id: item.id, name: item.name, result };
-                }
-
-                const matrices = new Map<string, ValidMatrix>();
-                matrices.set('A', validMatrix);
-                const result = calculateMatrixOperations(batchExpression, matrices, { summarized: true });
-                return { id: item.id, name: item.name, result };
-            } catch (e) {
-                return { id: item.id, name: item.name, error: e instanceof Error ? e.message : 'Batch run failed.' };
-            }
-        });
-
-        setBatchResults(results);
-        setBatchRunning(false);
-    };
-
     const exportBatchReport = () => {
         const payload = {
             generatedAt: new Date().toISOString(),
@@ -1593,6 +1975,55 @@ const App: React.FC = () => {
             results: batchResults
         };
         downloadFile('batch-report.json', JSON.stringify(payload, null, 2), 'application/json');
+    };
+
+    const exportStepsBundle = () => {
+        if (!results) {
+            setError('No results to export.');
+            return;
+        }
+
+        const sections: { title: string; blocks: string[] }[] = [];
+        const addSection = (title: string, blocks: string[]) => {
+            if (blocks.length > 0) sections.push({ title, blocks });
+        };
+
+        if (results && 'systemType' in results) {
+            const systemResult = results as CalculationResult;
+            const formatter = (m: ValidMatrix) => systemResult.systemType === 'non-homogeneous' ? formatAugmentedMatrixToLatex(m, systemResult.systemType) : formatMatrixToLatex(m);
+            const steps = systemResult.gaussJordanSteps.map(step => {
+                const op = step.operation || 'Step';
+                const matrix = step.matrix ? formatter(step.matrix) : '';
+                return `${op}\n${matrix ? `\\[${matrix}\\]` : ''}`.trim();
+            });
+            addSection('System Solver Steps', steps);
+            if (systemResult.determinant) addSection('Determinant', [`\\[\\det(A) = ${formatSymbolicFractionToLatex(systemResult.determinant.value)}\\]`]);
+            if (systemResult.inverse?.inverseMatrix) addSection('Inverse', [`\\[A^{-1} = ${formatMatrixToLatex(systemResult.inverse.inverseMatrix)}\\]`]);
+        } else if ('finalResult' in results) {
+            const opsResult = results as MatrixOperationsResult;
+            const steps = opsResult.steps.map(step => `${step.operation}\n\\[${formatMatrixToLatex(step.result)}\\]`);
+            addSection('Matrix Operation Steps', steps);
+        } else if ('operationResult' in results) {
+            const detOps = results as DeterminantOfOperationResult;
+            const steps = detOps.operationResult.steps.map(step => `${step.operation}\n\\[${formatMatrixToLatex(step.result)}\\]`);
+            addSection('Operation Steps', steps);
+            addSection('Determinant', [`\\[\\det(A) = ${formatSymbolicFractionToLatex(detOps.determinant.value)}\\]`]);
+        } else if ('kind' in results && results.kind === 'analysis') {
+            const analysis = results as MatrixAnalysisResult;
+            const blocks = [`Rank: ${analysis.rank}`];
+            if (analysis.trace !== undefined) {
+                const traceLatex = analysis.mode === 'numeric' ? formatNumberToLatex(analysis.trace, numberFormat) : formatSymbolicFractionToLatex(analysis.trace);
+                blocks.push(`\\[\\operatorname{tr}(A) = ${traceLatex}\\]`);
+            }
+            addSection('Analysis Summary', blocks);
+        }
+
+        const md = sections.map(section => `## ${section.title}\n\n${section.blocks.map(block => block.includes('\\[') ? block.replace(/\\\[/g, '$$').replace(/\\\]/g, '$$') : block).join('\n\n')}`).join('\n\n');
+        const texBody = sections.map(section => `\\section*{${section.title}}\n${section.blocks.join('\n\n')}`).join('\n\n');
+        const tex = `\\\\documentclass{article}\n\\\\usepackage{amsmath}\n\\\\usepackage{amssymb}\n\\\\usepackage[margin=1in]{geometry}\n\\\\begin{document}\n${texBody}\n\\\\end{document}\n`;
+
+        downloadFile('matrix-steps.md', md, 'text/markdown');
+        downloadFile('matrix-steps.tex', tex, 'text/plain');
     };
 
     // --- Universal Handlers ---
@@ -1611,179 +2042,124 @@ const App: React.FC = () => {
         }
     };
 
-    const handleCalculate = () => {
+    async function handleCalculate() {
         setResultsKey(prev => prev + 1);
-        setError(null); setIsLoading(true); setResults(null); setOpenSections({});
-        setTimeout(() => {
-            try {
-                if (autoSnapshotOnCalculate) {
-                    createSnapshot(`Auto ${new Date().toLocaleString()}`);
-                }
-                if (appMode === 'systemSolver') {
-                    if (!solverMatrix) throw new Error("Please create a matrix first.");
-                    if (matrixHasNull(solverMatrix)) throw new Error("Please fill in all matrix cells.");
-                    const validMatrix = solverMatrix as ValidMatrix;
-                    setOriginalMatrix(validMatrix);
-                    const result = calculate(validMatrix, systemType, { summarized: true });
-                    startTransition(() => setResults(result));
-                } else if (appMode === 'analysis') {
-                    if (!analysisMatrix) throw new Error("Please create a matrix first.");
-                    if (matrixHasNull(analysisMatrix)) throw new Error("Please fill in all matrix cells.");
-                    const validMatrix = analysisMatrix as ValidMatrix;
-                    const warnings: string[] = [];
-
-                    if (analysisMode === 'exact') {
-                        const rank = calculateRank(validMatrix);
-                        let trace: SymbolicFraction | undefined;
-                        if (validMatrix.length === validMatrix[0]?.length) {
-                            trace = calculateTrace(validMatrix);
-                        } else {
-                            warnings.push("Trace is only defined for square matrices.");
-                        }
-                        const result: MatrixAnalysisResult = {
-                            kind: 'analysis',
-                            mode: 'exact',
-                            rank,
-                            trace,
-                            warnings
-                        };
-                        startTransition(() => setResults(result));
-                    } else {
-                        const numericMatrix = toNumericMatrix(validMatrix);
-                        const rank = numericRank(numericMatrix);
-                        let trace: number | undefined;
-                        if (numericMatrix.length === numericMatrix[0]?.length) {
-                            trace = numericTrace(numericMatrix);
-                        } else {
-                            warnings.push("Trace is only defined for square matrices.");
-                        }
-
-                        const result: MatrixAnalysisResult = {
-                            kind: 'analysis',
-                            mode: 'numeric',
-                            rank,
-                            trace,
-                            warnings
-                        };
-
-                        if (analysisOptions.computeLU) {
-                            if (numericMatrix.length === numericMatrix[0]?.length) {
-                                result.lu = numericLU(numericMatrix);
-                            } else {
-                                warnings.push("LU decomposition requires a square matrix.");
-                            }
-                        }
-
-                        if (analysisOptions.computeQR) {
-                            result.qr = numericQR(numericMatrix);
-                        }
-
-                        if (analysisOptions.computeSVD) {
-                            result.svd = numericSVD(numericMatrix);
-                        }
-
-                        if (analysisOptions.computeEigen) {
-                            if (numericMatrix.length === numericMatrix[0]?.length) {
-                                result.eigen = numericEigen(numericMatrix);
-                            } else {
-                                warnings.push("Eigenvalues require a square matrix.");
-                            }
-                        }
-
-                        startTransition(() => setResults(result));
-                    }
-                } else {
-                     const matrices = new Map<string, ValidMatrix>();
-                     for (const name in matrixDefs) {
-                         if (!matrixNamesInExpression.includes(name)) continue;
-                         const def = matrixDefs[name];
-                         if(matrixHasNull(def.matrix)) throw new Error(`Please fill all cells for Matrix ${name}.`);
-                         matrices.set(name, def.matrix as ValidMatrix);
-                     }
-                     if (matrices.size !== matrixNamesInExpression.length) {
-                        throw new Error("One or more matrices in the expression are not defined.");
-                     }
-                     if (appMode === 'matrixOperations') {
-                         const result = calculateMatrixOperations(expression, matrices, { summarized: true });
-                         startTransition(() => setResults(result));
-                     } else if (appMode === 'determinantOfOperation') {
-                         const result = calculateDeterminantOfOperation(expression, matrices, { summarized: true });
-                         startTransition(() => setResults(result));
-                     }
-                }
-            } catch (e) {
-                if (e instanceof Error) setError(e.message);
-                else setError("An unknown error occurred during calculation.");
-            } finally {
-                setIsLoading(false);
+        setError(null);
+        setIsLoading(true);
+        setResults(null);
+        setOpenSections({});
+        try {
+            if (autoSnapshotOnCalculate) {
+                createSnapshot(`Auto ${new Date().toLocaleString()}`);
             }
-        }, 50);
+            if (appMode === 'systemSolver') {
+                if (!solverMatrix) throw new Error("Please create a matrix first.");
+                if (matrixHasNull(solverMatrix)) throw new Error("Please fill in all matrix cells.");
+                const validMatrix = solverMatrix as ValidMatrix;
+                setOriginalMatrix(validMatrix);
+                const result = await runWorkerRequest('systemSolver', { matrix: validMatrix, systemType }, 'calculate');
+                startTransition(() => setResults(result as AnyResult));
+            } else if (appMode === 'analysis') {
+                if (!analysisMatrix) throw new Error("Please create a matrix first.");
+                if (matrixHasNull(analysisMatrix)) throw new Error("Please fill in all matrix cells.");
+                const validMatrix = analysisMatrix as ValidMatrix;
+                const result = await runWorkerRequest('analysis', { matrix: validMatrix, analysisMode, analysisOptions }, 'calculate');
+                startTransition(() => setResults(result as AnyResult));
+            } else {
+                const matrices = new Map<string, ValidMatrix>();
+                for (const name in matrixDefs) {
+                    if (!matrixNamesInExpression.includes(name)) continue;
+                    const def = matrixDefs[name];
+                    if (matrixHasNull(def.matrix)) throw new Error(`Please fill all cells for Matrix ${name}.`);
+                    matrices.set(name, def.matrix as ValidMatrix);
+                }
+                if (matrices.size !== matrixNamesInExpression.length) {
+                    throw new Error("One or more matrices in the expression are not defined.");
+                }
+                const entries = Array.from(matrices.entries());
+                if (appMode === 'matrixOperations') {
+                    const result = await runWorkerRequest('matrixOperations', { expression, matrices: entries }, 'calculate');
+                    startTransition(() => setResults(result as AnyResult));
+                } else if (appMode === 'determinantOfOperation') {
+                    const result = await runWorkerRequest('determinantOfOperation', { expression, matrices: entries }, 'calculate');
+                    startTransition(() => setResults(result as AnyResult));
+                }
+            }
+        } catch (e) {
+            if (e instanceof Error) setError(e.message);
+            else setError("An unknown error occurred during calculation.");
+        } finally {
+            setIsLoading(false);
+        }
+    }
+    
+    const handleRequestDetails = async (section: string, payload?: any) => {
+        setError(null);
+        setLoadingDetails(section);
+        try {
+            if (!results) throw new Error("Cannot request details without initial results.");
+
+            let originalInputs: any;
+            if (appMode === 'systemSolver') {
+                if (!originalMatrix) throw new Error("Original matrix not found for detail calculation.");
+                const cacheKey = buildDetailCacheKey(originalMatrix, systemType);
+                const cached = detailCacheRef.current.get(cacheKey);
+                if (cached && (section === 'Determinant' || section === 'Matrix Inverse')) {
+                    const updated = { ...(results as CalculationResult) } as CalculationResult;
+                    if (section === 'Determinant' && cached.determinant) {
+                        updated.determinant = cached.determinant;
+                        startTransition(() => setResults(updated));
+                        setOpenSections(prev => ({ ...prev, [section]: true }));
+                        setLoadingDetails(null);
+                        return;
+                    }
+                    if (section === 'Matrix Inverse' && cached.inverse) {
+                        updated.inverse = cached.inverse;
+                        startTransition(() => setResults(updated));
+                        setOpenSections(prev => ({ ...prev, [section]: true }));
+                        setLoadingDetails(null);
+                        return;
+                    }
+                }
+                originalInputs = { matrix: originalMatrix, systemType, bVector: payload };
+            } else {
+                const matrices = new Map<string, ValidMatrix>();
+                for (const name in matrixDefs) {
+                    if (matrixNamesInExpression.includes(name)) {
+                        matrices.set(name, matrixDefs[name].matrix as ValidMatrix);
+                    }
+                }
+                originalInputs = { expression, matrices };
+            }
+
+            const newResults = await runWorkerRequest('details', {
+                section,
+                appMode,
+                results,
+                originalInputs
+            }, 'details');
+            if (appMode === 'systemSolver' && originalMatrix) {
+                const cacheKey = buildDetailCacheKey(originalMatrix, systemType);
+                const entry = detailCacheRef.current.get(cacheKey) || {};
+                if (section === 'Determinant' && (newResults as CalculationResult).determinant) {
+                    entry.determinant = (newResults as CalculationResult).determinant as DeterminantResult;
+                }
+                if (section === 'Matrix Inverse' && (newResults as CalculationResult).inverse) {
+                    entry.inverse = (newResults as CalculationResult).inverse as InverseResult;
+                }
+                detailCacheRef.current.set(cacheKey, entry);
+            }
+            startTransition(() => setResults(newResults as AnyResult));
+            setOpenSections(prev => ({ ...prev, [section]: true }));
+        } catch (e) {
+            if (e instanceof Error) setError(e.message);
+            else setError(`An unknown error occurred while calculating details for ${section}.`);
+        } finally {
+            setLoadingDetails(null);
+        }
     };
     
-    const handleRequestDetails = (section: string, payload?: any) => {
-        setError(null); setLoadingDetails(section);
-        setTimeout(() => {
-            try {
-                if (!results) throw new Error("Cannot request details without initial results.");
-                
-                let originalInputs: any;
-                if (appMode === 'systemSolver') {
-                    if (!originalMatrix) throw new Error("Original matrix not found for detail calculation.");
-                    const cacheKey = buildDetailCacheKey(originalMatrix, systemType);
-                    const cached = detailCacheRef.current.get(cacheKey);
-                    if (cached && (section === 'Determinant' || section === 'Matrix Inverse')) {
-                        const updated = { ...(results as CalculationResult) } as CalculationResult;
-                        if (section === 'Determinant' && cached.determinant) {
-                            updated.determinant = cached.determinant;
-                            startTransition(() => setResults(updated));
-                            setOpenSections(prev => ({ ...prev, [section]: true }));
-                            setLoadingDetails(null);
-                            return;
-                        }
-                        if (section === 'Matrix Inverse' && cached.inverse) {
-                            updated.inverse = cached.inverse;
-                            startTransition(() => setResults(updated));
-                            setOpenSections(prev => ({ ...prev, [section]: true }));
-                            setLoadingDetails(null);
-                            return;
-                        }
-                    }
-                    originalInputs = { matrix: originalMatrix, systemType, bVector: payload };
-                } else {
-                    const matrices = new Map<string, ValidMatrix>();
-                    for (const name in matrixDefs) {
-                        if (matrixNamesInExpression.includes(name)) {
-                            matrices.set(name, matrixDefs[name].matrix as ValidMatrix);
-                        }
-                    }
-                    originalInputs = { expression, matrices };
-                }
-
-                const newResults = recalculateDetailsForSection(results, section, originalInputs, appMode);
-                if (appMode === 'systemSolver' && originalMatrix) {
-                    const cacheKey = buildDetailCacheKey(originalMatrix, systemType);
-                    const entry = detailCacheRef.current.get(cacheKey) || {};
-                    if (section === 'Determinant' && (newResults as CalculationResult).determinant) {
-                        entry.determinant = (newResults as CalculationResult).determinant as DeterminantResult;
-                    }
-                    if (section === 'Matrix Inverse' && (newResults as CalculationResult).inverse) {
-                        entry.inverse = (newResults as CalculationResult).inverse as InverseResult;
-                    }
-                    detailCacheRef.current.set(cacheKey, entry);
-                }
-                startTransition(() => setResults(newResults));
-                setOpenSections(prev => ({ ...prev, [section]: true }));
-
-            } catch (e) {
-                 if (e instanceof Error) setError(e.message);
-                 else setError(`An unknown error occurred while calculating details for ${section}.`);
-            } finally {
-                setLoadingDetails(null);
-            }
-        }, 50)
-    };
-    
-    const handleReset = () => {
+    function handleReset() {
         setResultsKey(prev => prev + 1);
         setResults(null); setError(null);
         setRows(3); setCols(3); setSystemType('homogeneous');
@@ -1807,7 +2183,7 @@ const App: React.FC = () => {
             computeEigen: true
         });
         setOpenSections({});
-    };
+    }
 
     const handleRequestExplanation = (topic: string) => {
         const content = EXPLANATIONS[topic] || "An explanation for this topic is not available at the moment.";
@@ -2026,15 +2402,23 @@ const App: React.FC = () => {
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-4 items-end justify-center mb-6">
                 <div>
-                    <label htmlFor="sys-rows" className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Rows (m)</label>
-                    <input id="sys-rows" type="number" value={rows} onChange={(e) => { const val = e.target.value; setRows(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (rows === '') setRows(1); }} className="w-24 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                    <label htmlFor="sys-rows" className="block text-sm text-center font-medium text-secondary mb-1">Rows (m)</label>
+                    <input id="sys-rows" type="number" value={rows} onChange={(e) => { const val = e.target.value; setRows(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (rows === '') setRows(1); }} className="w-24 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                    <div className="flex justify-center gap-2 mt-2">
+                        <button onClick={() => setRows(prev => typeof prev === 'number' ? prev + 1 : 1)} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Row</button>
+                        <button onClick={() => setRows(prev => Math.max(1, typeof prev === 'number' ? prev - 1 : 1))} className="text-xs px-2 py-1 rounded-lg glass-btn">- Row</button>
+                    </div>
                 </div>
                 <div>
-                    <label htmlFor="sys-cols" className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">{systemType === 'homogeneous' ? 'Cols (n)' : 'Coeff. Cols (n)'}</label>
-                    <input id="sys-cols" type="number" value={cols} onChange={(e) => { const val = e.target.value; setCols(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (cols === '') setCols(1); }} className="w-24 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                    <label htmlFor="sys-cols" className="block text-sm text-center font-medium text-secondary mb-1">{systemType === 'homogeneous' ? 'Cols (n)' : 'Coeff. Cols (n)'}</label>
+                    <input id="sys-cols" type="number" value={cols} onChange={(e) => { const val = e.target.value; setCols(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (cols === '') setCols(1); }} className="w-24 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                    <div className="flex justify-center gap-2 mt-2">
+                        <button onClick={() => setCols(prev => typeof prev === 'number' ? prev + 1 : 1)} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Col</button>
+                        <button onClick={() => setCols(prev => Math.max(1, typeof prev === 'number' ? prev - 1 : 1))} className="text-xs px-2 py-1 rounded-lg glass-btn">- Col</button>
+                    </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={handleRandomizeSolverMatrix} className="bg-slate-500 hover:bg-slate-600 dark:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Randomize</button>
+                    <button onClick={handleRandomizeSolverMatrix} className="glass-btn font-bold py-2 px-4 rounded-lg">Randomize</button>
                     <button style={{ backgroundColor: 'var(--button-bg)' }} onClick={handleClearMatrix} className="hover:opacity-90 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">Clear</button>
                 </div>
             </div>
@@ -2044,7 +2428,7 @@ const App: React.FC = () => {
                         <h2 className="text-xl font-semibold" style={{ color: 'var(--primary-text-color)' }}>{systemType === 'homogeneous' ? 'Enter Matrix A' : 'Enter Augmented Matrix [A | b]'}</h2>
                         <InfoButton infoKey="matrixInput" />
                     </div>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-4 max-w-lg mx-auto">You can use integers (5), fractions (2/3), and symbolic constants (a, k, 5b-3).</p>
+                    <p className="text-sm text-secondary mb-4 max-w-lg mx-auto">You can use integers (5), fractions (2/3), and symbolic constants (a, k, 5b-3).</p>
                     <MatrixInput key={solverMatrixKey} rows={numRows} cols={totalCols} matrix={solverMatrix} systemType={systemType} onMatrixChange={handleRawMatrixChange} onSave={() => handleOpenSaveModal(solverMatrix, numRows, totalCols)} onLoad={() => { setLoadTarget('solver'); setLoadModalOpen(true); }} />
                 </div>
             )}
@@ -2068,10 +2452,10 @@ const App: React.FC = () => {
 
             {builderMode === 'text' ? (
                 <div className="text-center">
-                    <div className="overflow-x-auto bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
-                        <input type="text" value={expression} onChange={e => setExpression(e.target.value.toUpperCase())} className="block w-full bg-transparent px-3 py-2 text-slate-800 dark:text-white focus:outline-none font-mono text-lg min-w-max" placeholder="e.g. A^2 * B - C"/>
+                    <div className="overflow-x-auto glass-panel rounded-2xl p-1">
+                        <input type="text" value={expression} onChange={e => setExpression(e.target.value.toUpperCase())} className="block w-full glass-input px-3 py-2 text-ink focus:outline-none font-mono text-lg min-w-max" placeholder="e.g. A^2 * B - C"/>
                     </div>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mt-2">Use capital letters for matrix names. Supported operators: +, -, *, ^. Use parentheses for grouping.</p>
+                    <p className="text-sm text-secondary mt-2">Use capital letters for matrix names. Supported operators: +, -, *, ^. Use parentheses for grouping.</p>
                 </div>
             ) : (
                 <OperationBuilder 
@@ -2089,21 +2473,29 @@ const App: React.FC = () => {
                     const numDefRows = typeof def.rows === 'number' && def.rows > 0 ? def.rows : 1;
                     const numDefCols = typeof def.cols === 'number' && def.cols > 0 ? def.cols : 1;
                     return (
-                        <div key={name} className="p-4 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-300/50 dark:border-slate-700/50 rounded-lg">
+                        <div key={name} className="p-4 glass-panel rounded-2xl">
                             <div className="flex flex-wrap gap-x-6 gap-y-3 items-end mb-4">
                                 <div className="flex items-center gap-2 mr-auto">
                                     <h3 className="text-2xl font-bold" style={{ color: 'var(--primary-text-color)' }}>Matrix {name}</h3>
                                     <InfoButton infoKey="matrixInput" />
                                 </div>
                                 <div>
-                                    <label htmlFor={`rows-${name}`} className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Rows</label>
-                                    <input id={`rows-${name}`} type="number" value={def.rows} onChange={(e) => { const v = e.target.value; updateMatrixDef(name, { rows: v === '' ? '' : Math.max(1, parseInt(v) || 1) }); }} onBlur={() => { if (def.rows === '') updateMatrixDef(name, { rows: 1 }); }} className="w-20 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                                    <label htmlFor={`rows-${name}`} className="block text-sm text-center font-medium text-secondary mb-1">Rows</label>
+                                    <input id={`rows-${name}`} type="number" value={def.rows} onChange={(e) => { const v = e.target.value; updateMatrixDef(name, { rows: v === '' ? '' : Math.max(1, parseInt(v) || 1) }); }} onBlur={() => { if (def.rows === '') updateMatrixDef(name, { rows: 1 }); }} className="w-20 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                                    <div className="flex justify-center gap-2 mt-2">
+                                        <button onClick={() => updateMatrixDef(name, { rows: Math.max(1, (typeof def.rows === 'number' ? def.rows : 1) + 1) })} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Row</button>
+                                        <button onClick={() => updateMatrixDef(name, { rows: Math.max(1, (typeof def.rows === 'number' ? def.rows : 1) - 1) })} className="text-xs px-2 py-1 rounded-lg glass-btn">- Row</button>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label htmlFor={`cols-${name}`} className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Cols</label>
-                                    <input id={`cols-${name}`} type="number" value={def.cols} onChange={(e) => { const v = e.target.value; updateMatrixDef(name, { cols: v === '' ? '' : Math.max(1, parseInt(v) || 1) }); }} onBlur={() => { if (def.cols === '') updateMatrixDef(name, { cols: 1 }); }} className="w-20 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                                    <label htmlFor={`cols-${name}`} className="block text-sm text-center font-medium text-secondary mb-1">Cols</label>
+                                    <input id={`cols-${name}`} type="number" value={def.cols} onChange={(e) => { const v = e.target.value; updateMatrixDef(name, { cols: v === '' ? '' : Math.max(1, parseInt(v) || 1) }); }} onBlur={() => { if (def.cols === '') updateMatrixDef(name, { cols: 1 }); }} className="w-20 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                                    <div className="flex justify-center gap-2 mt-2">
+                                        <button onClick={() => updateMatrixDef(name, { cols: Math.max(1, (typeof def.cols === 'number' ? def.cols : 1) + 1) })} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Col</button>
+                                        <button onClick={() => updateMatrixDef(name, { cols: Math.max(1, (typeof def.cols === 'number' ? def.cols : 1) - 1) })} className="text-xs px-2 py-1 rounded-lg glass-btn">- Col</button>
+                                    </div>
                                 </div>
-                                <button onClick={() => handleRandomizeOpsMatrix(name)} className="bg-slate-500 hover:bg-slate-600 dark:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Randomize</button>
+                                <button onClick={() => handleRandomizeOpsMatrix(name)} className="glass-btn font-bold py-2 px-4 rounded-lg">Randomize</button>
                             </div>
                             <MatrixInput key={def.key} rows={numDefRows} cols={numDefCols} matrix={def.matrix} systemType="homogeneous" onMatrixChange={(m) => handleOpsMatrixChange(name, m)} onSave={() => handleOpenSaveModal(def.matrix, def.rows, def.cols)} onLoad={() => { setLoadTarget(name); setLoadModalOpen(true); }}/>
                         </div>
@@ -2124,30 +2516,38 @@ const App: React.FC = () => {
                     <button onClick={() => setAnalysisMode('exact')} className={`flex-1 py-2 rounded-xl transition-colors text-sm font-medium glass-tab ${analysisMode === 'exact' ? 'tab active' : ''}`}>Exact</button>
                     <button onClick={() => setAnalysisMode('numeric')} className={`flex-1 py-2 rounded-xl transition-colors text-sm font-medium glass-tab ${analysisMode === 'numeric' ? 'tab active' : ''}`}>Numeric</button>
                 </div>
-                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-slate-400">
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-secondary">
                     <span>Exact vs Numeric</span>
                     <InfoButton infoKey="analysisModes" className="w-4 h-4 text-[10px]" />
                 </div>
                 {analysisMode === 'exact' && (
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mt-2">Exact mode computes rank and trace only. Numeric mode unlocks LU, QR, SVD, and eigen analysis.</p>
+                    <p className="text-sm text-secondary mt-2">Exact mode computes rank and trace only. Numeric mode unlocks LU, QR, SVD, and eigen analysis.</p>
                 )}
             </div>
 
             <div className="flex flex-wrap gap-x-6 gap-y-4 items-end justify-center mb-6">
                 <div>
-                    <label htmlFor="analysis-rows" className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Rows (m)</label>
-                    <input id="analysis-rows" type="number" value={analysisRows} onChange={(e) => { const val = e.target.value; setAnalysisRows(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (analysisRows === '') setAnalysisRows(1); }} className="w-24 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                    <label htmlFor="analysis-rows" className="block text-sm text-center font-medium text-secondary mb-1">Rows (m)</label>
+                    <input id="analysis-rows" type="number" value={analysisRows} onChange={(e) => { const val = e.target.value; setAnalysisRows(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (analysisRows === '') setAnalysisRows(1); }} className="w-24 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                    <div className="flex justify-center gap-2 mt-2">
+                        <button onClick={() => setAnalysisRows(prev => typeof prev === 'number' ? prev + 1 : 1)} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Row</button>
+                        <button onClick={() => setAnalysisRows(prev => Math.max(1, typeof prev === 'number' ? prev - 1 : 1))} className="text-xs px-2 py-1 rounded-lg glass-btn">- Row</button>
+                    </div>
                 </div>
                 <div>
-                    <label htmlFor="analysis-cols" className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Cols (n)</label>
-                    <input id="analysis-cols" type="number" value={analysisCols} onChange={(e) => { const val = e.target.value; setAnalysisCols(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (analysisCols === '') setAnalysisCols(1); }} className="w-24 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" min="1"/>
+                    <label htmlFor="analysis-cols" className="block text-sm text-center font-medium text-secondary mb-1">Cols (n)</label>
+                    <input id="analysis-cols" type="number" value={analysisCols} onChange={(e) => { const val = e.target.value; setAnalysisCols(val === '' ? '' : Math.max(1, parseInt(val) || 1)); }} onBlur={() => { if (analysisCols === '') setAnalysisCols(1); }} className="w-24 glass-input rounded-md px-3 py-2 focus:outline-none" min="1"/>
+                    <div className="flex justify-center gap-2 mt-2">
+                        <button onClick={() => setAnalysisCols(prev => typeof prev === 'number' ? prev + 1 : 1)} className="text-xs px-2 py-1 rounded-lg glass-btn">+ Col</button>
+                        <button onClick={() => setAnalysisCols(prev => Math.max(1, typeof prev === 'number' ? prev - 1 : 1))} className="text-xs px-2 py-1 rounded-lg glass-btn">- Col</button>
+                    </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={handleRandomizeAnalysisMatrix} className="bg-slate-500 hover:bg-slate-600 dark:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Randomize</button>
+                    <button onClick={handleRandomizeAnalysisMatrix} className="glass-btn font-bold py-2 px-4 rounded-lg">Randomize</button>
                     <button style={{ backgroundColor: 'var(--button-bg)' }} onClick={handleClearAnalysisMatrix} className="hover:opacity-90 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">Clear</button>
                 </div>
                 <div className="min-w-[220px]">
-                    <label htmlFor="analysis-source" className="block text-sm text-center font-medium text-gray-500 dark:text-slate-400 mb-1">Load From</label>
+                    <label htmlFor="analysis-source" className="block text-sm text-center font-medium text-secondary mb-1">Load From</label>
                     <select
                         id="analysis-source"
                         value={analysisSource}
@@ -2163,7 +2563,7 @@ const App: React.FC = () => {
                                 else setError(`Matrix ${value} has empty cells.`);
                             }
                         }}
-                        className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        className="w-full glass-input rounded-md px-3 py-2 focus:outline-none"
                     >
                         <option value="custom">Custom Matrix</option>
                         <option value="solver">System Solver Matrix</option>
@@ -2176,11 +2576,11 @@ const App: React.FC = () => {
 
             {analysisMode === 'numeric' && (
                 <div className="mb-6 max-w-xl mx-auto">
-                    <div className="flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-slate-300 mb-2">
+                    <div className="flex items-center justify-center gap-2 text-sm text-secondary mb-2">
                         <span>Decomposition Options</span>
                         <InfoButton infoKey="decompositions" className="w-4 h-4 text-[10px]" />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600 dark:text-slate-300">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-secondary">
                     <label className="flex items-center gap-2">
                         <input type="checkbox" checked={analysisOptions.computeLU} onChange={(e) => setAnalysisOptions(prev => ({ ...prev, computeLU: e.target.checked }))} />
                         LU decomposition (P, L, U)
@@ -2206,7 +2606,7 @@ const App: React.FC = () => {
                     <h2 className="text-xl font-semibold" style={{ color: 'var(--primary-text-color)' }}>Analysis Matrix</h2>
                     <InfoButton infoKey="matrixInput" />
                 </div>
-                <p className="text-sm text-gray-500 dark:text-slate-400 mb-4 max-w-lg mx-auto">Use integers, fractions, or symbolic constants. Numeric mode requires all entries to be numeric constants.</p>
+                <p className="text-sm text-secondary mb-4 max-w-lg mx-auto">Use integers, fractions, or symbolic constants. Numeric mode requires all entries to be numeric constants.</p>
                 <MatrixInput key={analysisMatrixKey} rows={typeof analysisRows === 'number' && analysisRows > 0 ? analysisRows : 1} cols={typeof analysisCols === 'number' && analysisCols > 0 ? analysisCols : 1} matrix={analysisMatrix} systemType="homogeneous" onMatrixChange={handleAnalysisMatrixChange} onSave={() => handleOpenSaveModal(analysisMatrix, analysisRows, analysisCols)} onLoad={() => { setLoadTarget('analysis'); setLoadModalOpen(true); }} />
             </div>
         </>
@@ -2247,6 +2647,70 @@ const App: React.FC = () => {
         );
     };
 
+    const commands = [
+        { id: 'calculate', label: appMode === 'analysis' ? 'Analyze' : 'Calculate', action: handleCalculate },
+        { id: 'reset', label: 'Reset Workspace', action: handleReset },
+        { id: 'history', label: 'Open History', action: () => setHistoryOpen(true) },
+        { id: 'settings', label: 'Open Settings', action: () => setSettingsOpen(true) },
+        { id: 'tools', label: 'Open Tools', action: () => setToolsOpen(true) },
+        { id: 'export', label: 'Export / Import', action: () => setExportModalOpen(true) },
+        { id: 'report', label: 'Open Report', action: () => setReportOpen(true) },
+        { id: 'docs', label: 'Open Documentation', action: () => setDocsOpen(true) },
+        { id: 'mode-system', label: 'Switch to System Solver', action: () => handleModeChange('systemSolver') },
+        { id: 'mode-ops', label: 'Switch to Matrix Operations', action: () => handleModeChange('matrixOperations') },
+        { id: 'mode-det', label: 'Switch to Determinant of Operation', action: () => handleModeChange('determinantOfOperation') },
+        { id: 'mode-analysis', label: 'Switch to Analysis', action: () => handleModeChange('analysis') },
+        { id: 'tutor-on', label: 'Tutor Mode On', action: () => setTutorMode(true) },
+        { id: 'tutor-off', label: 'Tutor Mode Off', action: () => setTutorMode(false) }
+    ];
+    const pluginCommands = plugins.flatMap(plugin => (plugin.commands || []).map((cmd: any) => {
+        const action = () => {
+            if (cmd.action?.type === 'setExpression') {
+                setExpression(String(cmd.action.value || '').toUpperCase());
+                setBuilderMode('text');
+            } else if (cmd.action?.type === 'setMode') {
+                handleModeChange(cmd.action.value as AppMode);
+            } else if (cmd.action?.type === 'openTool') {
+                const target = cmd.action.value;
+                if (target === 'practice') setPracticeOpen(true);
+                if (target === 'functions') setMatrixFunctionsOpen(true);
+                if (target === 'iterative') setIterativeOpen(true);
+                if (target === 'simplifier') setSimplifierOpen(true);
+                if (target === 'jordan') setJordanOpen(true);
+                if (target === 'versions') setVersionsOpen(true);
+                if (target === 'plugins') setPluginsOpen(true);
+                if (target === 'exercises') setExerciseOpen(true);
+            }
+        };
+        return { id: `plugin-${plugin.id}-${cmd.id}`, label: cmd.label || `${plugin.name} command`, action };
+    }));
+    const filteredCommands = [...commands, ...pluginCommands].filter(cmd => cmd.label.toLowerCase().includes(commandQuery.toLowerCase()));
+
+    const inputPanel = (
+        <div className="no-print">
+            {appMode === 'systemSolver' ? renderSystemSolverSetup() : appMode === 'analysis' ? renderAnalysisSetup() : renderMatrixOpsSetup()}
+
+            {(appMode === 'systemSolver' && solverMatrix) || (appMode === 'analysis' && analysisMatrix) || (appMode !== 'systemSolver' && appMode !== 'analysis' && matrixNamesInExpression.length > 0) ? (
+                <div className={`grid grid-cols-1 ${appMode === 'analysis' ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4 mt-6`}>
+                    <button onClick={handleCalculate} disabled={isLoading} className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-3 px-6 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>{isLoading ? (appMode === 'analysis' ? 'Analyzing...' : 'Calculating...') : (appMode === 'analysis' ? 'Analyze' : 'Calculate')}</button>
+                    {appMode !== 'analysis' && (
+                        <button onClick={handleShare} className="flex items-center justify-center glass-btn font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>{shareButtonText}</button>
+                    )}
+                    <button onClick={handleReset} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566z" clipRule="evenodd" /></svg>Reset</button>
+                </div>
+            ) : null}
+
+            {error && <div className="mt-6 p-4 bg-red-400/20 border border-red-500/30 text-red-800 rounded-lg"><p className="font-bold">Error:</p><p>{error}</p></div>}
+            {isLoading && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
+        </div>
+    );
+
+    const resultsPanel = results ? (
+        <div className="print-area">
+            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} />
+        </div>
+    ) : null;
+
     return (
         <div className="min-h-screen flex flex-col items-center p-4 lg:p-8 transition-colors duration-300 relative">
             <div className="aurora-bg" aria-hidden="true">
@@ -2255,18 +2719,36 @@ const App: React.FC = () => {
                 <div className="aurora-layer layer-3" />
             </div>
             <div className="w-full max-w-7xl relative z-10">
-                <header className="text-center mb-8 relative no-print glass-panel rounded-3xl px-6 py-6">
+                <header className="header-panel text-center mb-8 relative no-print glass-panel rounded-3xl px-6 py-6">
                     <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold aurora-title">Matrix Master</h1>
-                    <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mt-2">A Comprehensive Linear Algebra Calculator</p>
+                    <p className="sm:text-lg text-secondary mt-2">A Comprehensive Linear Algebra Calculator</p>
                     <div className="absolute top-4 right-4 flex items-center gap-2">
-                        <button onClick={() => setHistoryOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open history"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-700 dark:text-slate-100/80" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 00-7.938 7H1a1 1 0 000 2h3a1 1 0 001-1V7a1 1 0 10-2 0v.057A6 6 0 1110 16a1 1 0 100 2A8 8 0 1010 2z" /><path d="M10 5a1 1 0 011 1v3.382l2.447 1.224a1 1 0 11-.894 1.788l-3-1.5A1 1 0 019 11V6a1 1 0 011-1z" /></svg></button>
-                        <button onClick={() => setExportModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Export or import"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-700 dark:text-slate-100/80" viewBox="0 0 20 20" fill="currentColor"><path d="M3 14a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1zM13 5V3a1 1 0 112 0v2h2a1 1 0 110 2h-2v2a1 1 0 11-2 0V7h-2a1 1 0 110-2h2z" /><path d="M3 6a2 2 0 012-2h3a1 1 0 110 2H5v8h10v-3a1 1 0 112 0v3a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" /></svg></button>
-                        <button onClick={() => setCompareModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Compare matrices"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-700 dark:text-slate-100/80" viewBox="0 0 20 20" fill="currentColor"><path d="M4 5a2 2 0 012-2h2a1 1 0 110 2H6v10h2a1 1 0 110 2H6a2 2 0 01-2-2V5z" /><path d="M16 5a2 2 0 00-2-2h-2a1 1 0 100 2h2v10h-2a1 1 0 100 2h2a2 2 0 002-2V5z" /><path d="M7 10a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" /></svg></button>
-                        <button onClick={() => setReportOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Print report"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-700 dark:text-slate-100/80" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a2 2 0 00-2 2v2h12V4a2 2 0 00-2-2H6z" /><path fillRule="evenodd" d="M4 9a2 2 0 00-2 2v3a2 2 0 002 2h2v-2H4v-3h12v3h-2v2h2a2 2 0 002-2v-3a2 2 0 00-2-2H4z" clipRule="evenodd" /><path d="M6 12h8v6H6v-6z" /></svg></button>
-                        <button onClick={() => setToolsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open tools"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-700 dark:text-slate-100/80" viewBox="0 0 20 20" fill="currentColor"><path d="M11.3 1.046a1 1 0 00-1.2.49l-.902 1.61a6.946 6.946 0 00-1.643.95l-1.8-.6a1 1 0 00-1.182.47l-1.2 2.078a1 1 0 00.272 1.272l1.477 1.134a7.01 7.01 0 000 1.9l-1.477 1.134a1 1 0 00-.272 1.272l1.2 2.078a1 1 0 001.182.47l1.8-.6c.508.39 1.058.715 1.643.95l.902 1.61a1 1 0 001.2.49l2.4-.8a1 1 0 00.68-1.02l-.16-1.94a7.04 7.04 0 001.32-1.32l1.94.16a1 1 0 001.02-.68l.8-2.4a1 1 0 00-.49-1.2l-1.61-.902a6.946 6.946 0 00-.95-1.643l.6-1.8a1 1 0 00-.47-1.182l-2.078-1.2a1 1 0 00-1.272.272l-1.134 1.477a7.01 7.01 0 00-1.9 0L12.3 1.318a1 1 0 00-1-0.272zM10 7a3 3 0 110 6 3 3 0 010-6z" /></svg></button>
-                        <button onClick={() => setSettingsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open settings"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-700 dark:text-slate-100/80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
+                        <button onClick={() => setHistoryOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open history"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 00-7.938 7H1a1 1 0 000 2h3a1 1 0 001-1V7a1 1 0 10-2 0v.057A6 6 0 1110 16a1 1 0 100 2A8 8 0 1010 2z" /><path d="M10 5a1 1 0 011 1v3.382l2.447 1.224a1 1 0 11-.894 1.788l-3-1.5A1 1 0 019 11V6a1 1 0 011-1z" /></svg></button>
+                        <button onClick={() => setExportModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Export or import"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 14a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1zM13 5V3a1 1 0 112 0v2h2a1 1 0 110 2h-2v2a1 1 0 11-2 0V7h-2a1 1 0 110-2h2z" /><path d="M3 6a2 2 0 012-2h3a1 1 0 110 2H5v8h10v-3a1 1 0 112 0v3a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" /></svg></button>
+                        <button onClick={() => setCompareModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Compare matrices"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 5a2 2 0 012-2h2a1 1 0 110 2H6v10h2a1 1 0 110 2H6a2 2 0 01-2-2V5z" /><path d="M16 5a2 2 0 00-2-2h-2a1 1 0 100 2h2v10h-2a1 1 0 100 2h2a2 2 0 002-2V5z" /><path d="M7 10a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" /></svg></button>
+                        <button onClick={() => setReportOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Print report"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a2 2 0 00-2 2v2h12V4a2 2 0 00-2-2H6z" /><path fillRule="evenodd" d="M4 9a2 2 0 00-2 2v3a2 2 0 002 2h2v-2H4v-3h12v3h-2v2h2a2 2 0 002-2v-3a2 2 0 00-2-2H4z" clipRule="evenodd" /><path d="M6 12h8v6H6v-6z" /></svg></button>
+                        <button onClick={() => setToolsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open tools"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M11.3 1.046a1 1 0 00-1.2.49l-.902 1.61a6.946 6.946 0 00-1.643.95l-1.8-.6a1 1 0 00-1.182.47l-1.2 2.078a1 1 0 00.272 1.272l1.477 1.134a7.01 7.01 0 000 1.9l-1.477 1.134a1 1 0 00-.272 1.272l1.2 2.078a1 1 0 001.182.47l1.8-.6c.508.39 1.058.715 1.643.95l.902 1.61a1 1 0 001.2.49l2.4-.8a1 1 0 00.68-1.02l-.16-1.94a7.04 7.04 0 001.32-1.32l1.94.16a1 1 0 001.02-.68l.8-2.4a1 1 0 00-.49-1.2l-1.61-.902a6.946 6.946 0 00-.95-1.643l.6-1.8a1 1 0 00-.47-1.182l-2.078-1.2a1 1 0 00-1.272.272l-1.134 1.477a7.01 7.01 0 00-1.9 0L12.3 1.318a1 1 0 00-1-0.272zM10 7a3 3 0 110 6 3 3 0 010-6z" /></svg></button>
+                        <button onClick={() => setSettingsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open settings"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
                     </div>
                 </header>
+
+                <div className="no-print mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button onClick={() => setCommandOpen(true)} className="ios-action-card">
+                        <div className="ios-action-kicker">Quick Action</div>
+                        <div className="ios-action-title">Command Palette</div>
+                        <div className="ios-action-subtitle">Search anything fast. Cmd/Ctrl + K.</div>
+                    </button>
+                    <button onClick={() => setIterativeOpen(true)} className="ios-action-card">
+                        <div className="ios-action-kicker">Core Mode</div>
+                        <div className="ios-action-title">Iterative Solvers</div>
+                        <div className="ios-action-subtitle">Run Jacobi, GS, CG, GMRES with preconditioning.</div>
+                    </button>
+                    <button onClick={() => setSimplifierOpen(true)} className="ios-action-card">
+                        <div className="ios-action-kicker">Core Tool</div>
+                        <div className="ios-action-title">Symbolic Simplifier</div>
+                        <div className="ios-action-subtitle">Trace rule-by-rule algebra cleanup.</div>
+                    </button>
+                </div>
 
                 <div className="flex glass-panel rounded-2xl p-1 mb-6 no-print">
                     <button onClick={() => handleModeChange('systemSolver')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'systemSolver' ? 'active' : ''}`}>System Solver</button>
@@ -2282,23 +2764,36 @@ const App: React.FC = () => {
                 </div>
 
                 <main className="glass-shell rounded-3xl p-4 sm:p-6 border border-transparent">
-                    <div className="no-print">
-                        {appMode === 'systemSolver' ? renderSystemSolverSetup() : appMode === 'analysis' ? renderAnalysisSetup() : renderMatrixOpsSetup()}
-                                        
-                    {(appMode === 'systemSolver' && solverMatrix) || (appMode === 'analysis' && analysisMatrix) || (appMode !== 'systemSolver' && appMode !== 'analysis' && matrixNamesInExpression.length > 0) ? (
-                        <div className={`grid grid-cols-1 ${appMode === 'analysis' ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4 mt-6`}>
-                            <button onClick={handleCalculate} disabled={isLoading} className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-3 px-6 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>{isLoading ? (appMode === 'analysis' ? 'Analyzing...' : 'Calculating...') : (appMode === 'analysis' ? 'Analyze' : 'Calculate')}</button>
-                            {appMode !== 'analysis' && (
-                                <button onClick={handleShare} className="flex items-center justify-center glass-btn font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>{shareButtonText}</button>
-                            )}
-                            <button onClick={handleReset} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566z" clipRule="evenodd" /></svg>Reset</button>
+                    {results ? (
+                        <div
+                            ref={splitContainerRef}
+                            className="split-layout gap-0"
+                            style={{
+                                ['--split-left' as any]: `${splitRatio * 100}%`,
+                                ['--split-right' as any]: `${(1 - splitRatio) * 100}%`
+                            }}
+                        >
+                            <div className="no-print pr-4 min-w-0">
+                                {inputPanel}
+                            </div>
+                            <div className="hidden lg:block no-print">
+                                <div
+                                    onMouseDown={() => setIsResizing(true)}
+                                    className={`split-divider h-full ${isResizing ? 'is-active' : ''}`}
+                                    aria-label="Resize panels"
+                                    role="separator"
+                                />
+                            </div>
+                            <div className="min-w-0">
+                                {resultsPanel}
+                            </div>
                         </div>
-                    ) : null}
-
-                        {error && <div className="mt-6 p-4 bg-red-400/20 dark:bg-red-900/50 border border-red-500/30 dark:border-red-700 text-red-800 dark:text-red-300 rounded-lg"><p className="font-bold">Error:</p><p>{error}</p></div>}
-                        {isLoading && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
-                    </div>
-                    {results && <div className="mt-8 print-area"><ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} /></div>}
+                    ) : (
+                        <>
+                            {inputPanel}
+                            {resultsPanel}
+                        </>
+                    )}
                     {results && (
                         <ReportView
                             results={results}
@@ -2315,91 +2810,158 @@ const App: React.FC = () => {
                 </main>
             </div>
             {/* --- Modals --- */}
+            <Modal title="Command Palette" isOpen={isCommandOpen} onClose={() => { setCommandOpen(false); setCommandQuery(''); }}>
+                <div className="space-y-3">
+                    <input
+                        autoFocus
+                        value={commandQuery}
+                        onChange={(e) => setCommandQuery(e.target.value)}
+                        placeholder="Type a command..."
+                        className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <div className="max-h-72 overflow-y-auto space-y-2">
+                        {filteredCommands.length === 0 && (
+                            <div className="text-sm text-secondary">No matching commands.</div>
+                        )}
+                        {filteredCommands.map(cmd => (
+                            <button
+                                key={cmd.id}
+                                onClick={() => { cmd.action(); setCommandOpen(false); setCommandQuery(''); }}
+                                className="w-full text-left px-3 py-2 rounded-lg glass-btn hover:bg-white/10"
+                            >
+                                {cmd.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="text-xs text-secondary">Shortcuts: Ctrl/Cmd+K, Ctrl/Cmd+Enter, Ctrl/Cmd+Shift+R</div>
+                </div>
+            </Modal>
             <Modal title="Save Matrix to Library" isOpen={isSaveModalOpen} onClose={() => setSaveModalOpen(false)}>
                 <form onSubmit={(e) => { e.preventDefault(); handleSaveToLibrary(e.currentTarget.matrixName.value, e.currentTarget.folderName.value, e.currentTarget.tags.value); }} className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Store matrices with folders and tags.</span>
                         <InfoButton infoKey="library" />
                     </div>
-                    <label className="block"><span className="text-gray-700 dark:text-gray-300">Matrix Name:</span>
-                        <input name="matrixName" type="text" required className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-slate-800 dark:text-white" placeholder="e.g. Homework 5, Q1"/>
+                    <label className="block"><span className="text-secondary">Matrix Name:</span>
+                        <input name="matrixName" type="text" required className="mt-1 block w-full rounded-md glass-input shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-ink" placeholder="e.g. Homework 5, Q1"/>
                     </label>
-                    <label className="block"><span className="text-gray-700 dark:text-gray-300">Folder (optional):</span>
-                        <input name="folderName" type="text" className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-slate-800 dark:text-white" placeholder="e.g. Linear Algebra"/>
+                    <label className="block"><span className="text-secondary">Folder (optional):</span>
+                        <input name="folderName" type="text" className="mt-1 block w-full rounded-md glass-input shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-ink" placeholder="e.g. Linear Algebra"/>
                     </label>
-                    <label className="block"><span className="text-gray-700 dark:text-gray-300">Tags (comma-separated):</span>
-                        <input name="tags" type="text" className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-slate-800 dark:text-white" placeholder="e.g. homework, exam, practice"/>
+                    <label className="block"><span className="text-secondary">Tags (comma-separated):</span>
+                        <input name="tags" type="text" className="mt-1 block w-full rounded-md glass-input shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-500 focus:ring-opacity-50 text-ink" placeholder="e.g. homework, exam, practice"/>
                     </label>
-                    <div className="flex justify-end gap-2"><button type="button" onClick={() => setSaveModalOpen(false)} className="py-2 px-4 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500">Cancel</button><button type="submit" style={{backgroundColor: 'var(--button-bg)'}} className="py-2 px-4 rounded-lg text-white hover:opacity-90">Save</button></div>
+                    <div className="flex justify-end gap-2"><button type="button" onClick={() => setSaveModalOpen(false)} className="py-2 px-4 rounded-lg glass-btn">Cancel</button><button type="submit" style={{backgroundColor: 'var(--button-bg)'}} className="py-2 px-4 rounded-lg text-white hover:opacity-90">Save</button></div>
                 </form>
             </Modal>
             <Modal title="Load Matrix from Library" isOpen={isLoadModalOpen} onClose={() => setLoadModalOpen(false)}>
-                <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
-                        <span>Search by name, folder, or tag.</span>
+                <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
+                        <span>Search, filter, and reuse saved matrices.</span>
                         <InfoButton infoKey="library" />
                     </div>
-                    <div className="flex gap-2">
-                        <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, folder, or tag..." className="flex-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                        <select value={libraryFolderFilter} onChange={e => setLibraryFolderFilter(e.target.value)} className="rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                            <option value="all">All Folders</option>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, folder, or tag..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <select value={libraryFolderFilter} onChange={e => setLibraryFolderFilter(e.target.value)} className="rounded-md glass-input px-2 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <option value="all">All folders</option>
                             {libraryFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
                         </select>
+                        <div className="flex glass-panel rounded-2xl p-1">
+                            <button onClick={() => setLibraryView('grid')} className={`px-3 py-1 rounded-xl text-xs glass-tab ${libraryView === 'grid' ? 'tab active' : ''}`}>Grid</button>
+                            <button onClick={() => setLibraryView('list')} className={`px-3 py-1 rounded-xl text-xs glass-tab ${libraryView === 'list' ? 'tab active' : ''}`}>List</button>
+                        </div>
                     </div>
-                    <div className="space-y-2 max-h-80 overflow-y-auto">
-                        {filteredLibrary.length > 0 ? filteredLibrary.map(sm => (
-                            <div key={sm.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-slate-700/50">
-                                <div className="min-w-0">
-                                    <div className="font-medium text-slate-800 dark:text-slate-200 truncate">{sm.name} ({sm.rows}x{sm.cols})</div>
-                                    <div className="text-xs text-gray-500 dark:text-slate-400">{sm.folder || 'Unsorted'}{sm.tags?.length ? ` • ${sm.tags.join(', ')}` : ''}</div>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {filteredLibrary.length > 0 ? (
+                            libraryView === 'list' ? (
+                                filteredLibrary.map(sm => (
+                                    <div key={sm.id} className="flex items-center justify-between p-3 glass-input/50 rounded-lg">
+                                        <div>
+                                            <h4 className="font-semibold text-ink">{sm.name}</h4>
+                                            <p className="text-xs text-secondary">{sm.rows}x{sm.cols} • {(sm.folder || 'Unsorted')}</p>
+                                            {sm.tags && sm.tags.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{sm.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}</div>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={() => handleDeleteFromLibrary(sm.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${sm.name}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button>
+                                            <button onClick={() => handleLoadFromLibrary(sm)} style={{backgroundColor: 'var(--button-bg)'}} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">Load</button>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {filteredLibrary.map(sm => (
+                                        <div key={sm.id} className="p-3 rounded-xl glass-input/50 border border-slate-200 dark:border-slate-600 flex flex-col gap-3">
+                                            <div>
+                                                <h4 className="font-semibold text-ink">{sm.name}</h4>
+                                                <p className="text-xs text-secondary">{sm.rows}x{sm.cols} • {(sm.folder || 'Unsorted')}</p>
+                                            </div>
+                                            <div className="text-[11px] text-secondary bg-white/60 rounded-lg px-2 py-2 font-mono overflow-x-auto">
+                                                {sm.matrix?.slice(0, 2).map((row, idx) => (
+                                                    <div key={idx} className="whitespace-nowrap">
+                                                        {row.map(cell => (cell ?? '•')).join('  ')}
+                                                    </div>
+                                                ))}
+                                                {sm.rows > 2 && <div className="text-secondary">…</div>}
+                                            </div>
+                                            {sm.tags && sm.tags.length > 0 && <div className="flex flex-wrap gap-1">{sm.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}</div>}
+                                            <div className="flex items-center justify-between">
+                                                <button onClick={() => handleDeleteFromLibrary(sm.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
+                                                <button onClick={() => handleLoadFromLibrary(sm)} style={{backgroundColor: 'var(--button-bg)'}} className="py-1 px-3 rounded-lg text-white text-xs hover:opacity-90">Load</button>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => handleDeleteFromLibrary(sm.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${sm.name}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button>
-                                    <button onClick={() => handleLoadFromLibrary(sm)} style={{backgroundColor: 'var(--button-bg)'}} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">Load</button>
-                                </div>
-                            </div>
-                        )) : <p className="text-gray-500 dark:text-slate-400">No matches found.</p>}
+                            )
+                        ) : (
+                            <p className="text-sm text-secondary">No matrices found.</p>
+                        )}
                     </div>
                 </div>
             </Modal>
             <Modal title="Use Result As..." isOpen={useResultModal.open} onClose={() => setUseResultModal({ open: false, matrix: null })}>
                 <div className="space-y-3">
-                    <p className="text-gray-600 dark:text-slate-400">Where would you like to send the resulting matrix?</p>
-                    <button onClick={() => handleSetMatrixFromUsedResult('solver')} className="w-full text-left p-3 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600">System Solver Matrix</button>
-                    <button onClick={() => handleSetMatrixFromUsedResult('analysis')} className="w-full text-left p-3 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600">Analysis Matrix</button>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 pt-2">Or, use in a new matrix operation:</p>
+                    <p className="text-secondary">Where would you like to send the resulting matrix?</p>
+                    <button onClick={() => handleSetMatrixFromUsedResult('solver')} className="w-full text-left p-3 rounded-lg glass-btn">System Solver Matrix</button>
+                    <button onClick={() => handleSetMatrixFromUsedResult('analysis')} className="w-full text-left p-3 rounded-lg glass-btn">Analysis Matrix</button>
+                    <p className="text-sm text-secondary pt-2">Or, use in a new matrix operation:</p>
                     <div className="flex flex-wrap gap-2">{['C', 'D', 'E', 'F'].filter(n => !matrixNamesInExpression.includes(n)).map(name => <button key={name} onClick={() => handleSetMatrixFromUsedResult(name)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Use as Matrix {name}</button>)}</div>
                 </div>
             </Modal>
             <Modal title="Export / Import" isOpen={isExportModalOpen} onClose={() => setExportModalOpen(false)}>
                 <div className="space-y-5">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Export matrices, app state, and clipboard formats.</span>
                         <InfoButton infoKey="exportImport" />
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-700 dark:text-gray-200">Export Matrix</h3>
+                            <h3 className="font-semibold text-secondary">Export Matrix</h3>
                             <InfoButton infoKey="exportImport" />
                         </div>
-                        <select value={exportMatrixKey} onChange={e => setExportMatrixKey(e.target.value)} className="w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <select value={exportMatrixKey} onChange={e => setExportMatrixKey(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                             {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                         </select>
                         <div className="flex gap-2">
-                            <button onClick={() => { try { exportMatrixAsCsv(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-sm">Export CSV</button>
-                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-sm">Export LaTeX</button>
+                            <button onClick={() => { try { exportMatrixAsCsv(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export CSV</button>
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export LaTeX</button>
                         </div>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-700 dark:text-gray-200">Copy to Clipboard</h3>
+                            <h3 className="font-semibold text-secondary">Export Steps</h3>
+                        </div>
+                        <button onClick={exportStepsBundle} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Export Markdown + LaTeX</button>
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-secondary">Copy to Clipboard</h3>
                             <InfoButton infoKey="clipboard" />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <select value={clipboardTarget} onChange={e => setClipboardTarget(e.target.value)} className="w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <select value={clipboardTarget} onChange={e => setClipboardTarget(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                                 {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                             </select>
-                            <select value={clipboardFormat} onChange={e => setClipboardFormat(e.target.value as 'csv' | 'latex' | 'json')} className="w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <select value={clipboardFormat} onChange={e => setClipboardFormat(e.target.value as 'csv' | 'latex' | 'json')} className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                                 <option value="csv">CSV</option>
                                 <option value="latex">LaTeX</option>
                                 <option value="json">JSON</option>
@@ -2410,60 +2972,90 @@ const App: React.FC = () => {
 
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-700 dark:text-gray-200">Export App State</h3>
+                            <h3 className="font-semibold text-secondary">Export App State</h3>
                             <InfoButton infoKey="exportImport" />
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => exportStateAsJson(false)} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-sm">Export JSON</button>
+                            <button onClick={() => exportStateAsJson(false)} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
                             <button onClick={() => exportStateAsJson(true)} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
                         </div>
                     </div>
 
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-700 dark:text-gray-200">Import</h3>
+                            <h3 className="font-semibold text-secondary">Import</h3>
                             <InfoButton infoKey="exportImport" />
                         </div>
-                        <select value={importMatrixKey} onChange={e => setImportMatrixKey(e.target.value)} className="w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <select value={importMatrixKey} onChange={e => setImportMatrixKey(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                             {getMatrixOptions().filter(opt => opt.key !== 'result').map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                         </select>
-                        <input type="file" accept=".json,.mmatrix,.csv,.tsv,.tex" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await handleImportFile(file); setExportModalOpen(false); } catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); } finally { e.currentTarget.value = ''; } }} className="block w-full text-sm text-gray-600 dark:text-gray-300" />
-                        <p className="text-xs text-gray-500 dark:text-slate-400">CSV/TSV/LaTeX imports into the selected matrix target. JSON/mmatrix restores full app state.</p>
+                        <input type="file" accept=".json,.mmatrix,.csv,.tsv,.tex" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await handleImportFile(file); setExportModalOpen(false); } catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); } finally { e.currentTarget.value = ''; } }} className="block w-full text-sm text-secondary" />
+                        <p className="text-xs text-secondary">CSV/TSV/LaTeX imports into the selected matrix target. JSON/mmatrix restores full app state.</p>
                     </div>
                 </div>
             </Modal>
             <Modal title="Tools" isOpen={isToolsOpen} onClose={() => setToolsOpen(false)}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setPresetsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Matrix Presets</button>
+                        <button onClick={() => { setPresetsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Presets</button>
                         <InfoButton infoKey="presets" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setSparseOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Sparse View (CSR/CSC)</button>
+                        <button onClick={() => { setSparseOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Sparse View (CSR/CSC)</button>
                         <InfoButton infoKey="sparse" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setBatchOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Batch Runner</button>
+                        <button onClick={() => { setBatchOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Batch Runner</button>
                         <InfoButton infoKey="batch" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setRecipesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Matrix Recipes</button>
+                        <button onClick={() => { setRecipesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Recipes</button>
                         <InfoButton infoKey="recipes" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setAssumptionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Variable Assumptions</button>
+                        <button onClick={() => { setAssumptionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Variable Assumptions</button>
                         <InfoButton infoKey="assumptions" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setProfilesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Workspace Profiles</button>
+                        <button onClick={() => { setProfilesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Workspace Profiles</button>
                         <InfoButton infoKey="profiles" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setHelpOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Offline Help Pack</button>
+                        <button onClick={() => { setSimplifierOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Symbolic Simplifier</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setMatrixFunctionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Functions</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setJordanOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Jordan Form</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setIterativeOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Iterative Solvers</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setExerciseOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Exercise Packs</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setPluginsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Plugins</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setVersionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Project Versions</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setStepCompareOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Step Compare</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setPracticeOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Guided Practice</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setBlockOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Block Matrix Builder</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => { setHelpOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Offline Help Pack</button>
                         <InfoButton infoKey="help" />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => { setDocsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Documentation</button>
+                        <button onClick={() => { setDocsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Documentation</button>
                         <InfoButton infoKey="documentation" />
                     </div>
                     <div className="flex items-center gap-2">
@@ -2474,19 +3066,19 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Matrix Presets" isOpen={isPresetsOpen} onClose={() => setPresetsOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Generate common matrices and apply them to a target.</span>
                         <InfoButton infoKey="presets" />
                     </div>
                     <div>
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Target Matrix</label>
-                        <select value={presetTarget} onChange={e => setPresetTarget(e.target.value)} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                        <label className="text-sm text-secondary">Target Matrix</label>
+                        <select value={presetTarget} onChange={e => setPresetTarget(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
                             {getMatrixOptions().filter(opt => opt.key !== 'result').map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                         </select>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Preset Type
-                            <select value={presetType} onChange={e => setPresetType(e.target.value as typeof presetType)} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                        <label className="text-sm text-secondary">Preset Type
+                            <select value={presetType} onChange={e => setPresetType(e.target.value as typeof presetType)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
                                 <option value="identity">Identity</option>
                                 <option value="permutation">Permutation</option>
                                 <option value="jordan">Jordan Block</option>
@@ -2494,49 +3086,311 @@ const App: React.FC = () => {
                                 <option value="spd">Random SPD</option>
                             </select>
                         </label>
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Eigenvalue (Jordan)
-                            <input type="number" value={presetJordanEigen} onChange={e => setPresetJordanEigen(parseInt(e.target.value) || 1)} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                        <label className="text-sm text-secondary">Eigenvalue (Jordan)
+                            <input type="number" value={presetJordanEigen} onChange={e => setPresetJordanEigen(parseInt(e.target.value) || 1)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink" />
                         </label>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Rows
-                            <input type="number" min="1" value={presetRows} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setPresetRows(v); if (['identity','permutation','jordan','hilbert','spd'].includes(presetType)) setPresetCols(v); }} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                        <label className="text-sm text-secondary">Rows
+                            <input type="number" min="1" value={presetRows} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setPresetRows(v); if (['identity','permutation','jordan','hilbert','spd'].includes(presetType)) setPresetCols(v); }} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink" />
                         </label>
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Cols
-                            <input type="number" min="1" value={presetCols} onChange={e => setPresetCols(Math.max(1, parseInt(e.target.value) || 1))} disabled={['identity','permutation','jordan','hilbert','spd'].includes(presetType)} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white disabled:opacity-60" />
+                        <label className="text-sm text-secondary">Cols
+                            <input type="number" min="1" value={presetCols} onChange={e => setPresetCols(Math.max(1, parseInt(e.target.value) || 1))} disabled={['identity','permutation','jordan','hilbert','spd'].includes(presetType)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink disabled:opacity-60" />
                         </label>
                     </div>
                     <button onClick={handleApplyPreset} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Apply Preset</button>
                 </div>
             </Modal>
+            <Modal title="Guided Practice" isOpen={isPracticeOpen} onClose={() => setPracticeOpen(false)}>
+                <div className="space-y-4">
+                    <p className="text-sm text-secondary">Generate a random linear system and solve for x. Check your answer or load into the solver.</p>
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => generatePracticeSystem(2)} className="px-3 py-2 rounded-lg glass-btn text-sm">New 2x2</button>
+                        <button onClick={() => generatePracticeSystem(3)} className="px-3 py-2 rounded-lg glass-btn text-sm">New 3x3</button>
+                        <button onClick={handleLoadPracticeToSolver} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm" disabled={!practiceMatrix}>Load to Solver</button>
+                    </div>
+                    {practiceMatrix && practiceB && (
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="glass-input/50 rounded-lg p-2">
+                                    <div className="text-xs text-secondary mb-1">Matrix A</div>
+                                    <LatexRenderer latex={formatMatrixToLatex(practiceMatrix)} />
+                                </div>
+                                <div className="glass-input/50 rounded-lg p-2">
+                                    <div className="text-xs text-secondary mb-1">Vector b</div>
+                                    <LatexRenderer latex={formatMatrixToLatex(practiceB)} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <div className="text-sm text-secondary">Enter solution vector x:</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {practiceGuess.map((val, idx) => (
+                                        <input
+                                            key={idx}
+                                            value={val}
+                                            onChange={(e) => {
+                                                const next = [...practiceGuess];
+                                                next[idx] = e.target.value;
+                                                setPracticeGuess(next);
+                                            }}
+                                            className="w-24 rounded-md glass-input px-2 py-1 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            placeholder={`x${idx + 1}`}
+                                        />
+                                    ))}
+                                </div>
+                                <button onClick={handleCheckPractice} className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm">Check Answer</button>
+                                {practiceFeedback && <div className="text-sm text-secondary">{practiceFeedback}</div>}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Block Matrix Builder" isOpen={isBlockOpen} onClose={() => setBlockOpen(false)}>
+                <div className="space-y-4">
+                    <p className="text-sm text-secondary">Combine four matrices into a 2×2 block matrix.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="text-sm text-secondary">Top Left (A)
+                            <select value={blockKeys.tl} onChange={e => setBlockKeys(prev => ({ ...prev, tl: e.target.value }))} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </label>
+                        <label className="text-sm text-secondary">Top Right (B)
+                            <select value={blockKeys.tr} onChange={e => setBlockKeys(prev => ({ ...prev, tr: e.target.value }))} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </label>
+                        <label className="text-sm text-secondary">Bottom Left (C)
+                            <select value={blockKeys.bl} onChange={e => setBlockKeys(prev => ({ ...prev, bl: e.target.value }))} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </label>
+                        <label className="text-sm text-secondary">Bottom Right (D)
+                            <select value={blockKeys.br} onChange={e => setBlockKeys(prev => ({ ...prev, br: e.target.value }))} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </label>
+                    </div>
+                    <div>
+                        <label className="text-sm text-secondary">Apply To</label>
+                        <select value={blockTarget} onChange={e => setBlockTarget(e.target.value)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                            {getMatrixOptions().filter(opt => opt.key !== 'result').map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                        </select>
+                    </div>
+                    <button onClick={handleApplyBlockMatrix} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Build Block Matrix</button>
+                </div>
+            </Modal>
+            <Modal title="Symbolic Simplifier" isOpen={isSimplifierOpen} onClose={() => setSimplifierOpen(false)}>
+                <div className="space-y-4">
+                    <div className="text-sm text-secondary">Simplify a symbolic fraction and inspect the rule trace.</div>
+                    <input value={simplifyInput} onChange={e => setSimplifyInput(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink" />
+                    <button onClick={handleSimplify} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Simplify</button>
+                    {simplifyOutput && (
+                        <div className="glass-input/50 rounded-lg p-3">
+                            <div className="text-xs text-secondary mb-1">Result</div>
+                            <LatexRenderer latex={simplifyOutput} />
+                        </div>
+                    )}
+                    {simplifyTrace.length > 0 && (
+                        <div className="space-y-2 max-h-72 overflow-y-auto">
+                            {simplifyTrace.map((step: any, idx: number) => (
+                                <div key={idx} className="p-2 rounded-lg glass-input/50">
+                                    <div className="text-xs font-semibold text-secondary">{step.rule}</div>
+                                    <div className="text-[11px] text-secondary">{step.note}</div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <LatexRenderer latex={formatSymbolicFractionToLatex(step.before)} />
+                                        <LatexRenderer latex={formatSymbolicFractionToLatex(step.after)} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Matrix Functions" isOpen={isMatrixFunctionsOpen} onClose={() => setMatrixFunctionsOpen(false)}>
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-sm text-secondary">Matrix</label>
+                            <select value={matrixFuncTarget} onChange={e => setMatrixFuncTarget(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-sm text-secondary">Function</label>
+                            <select value={matrixFuncType} onChange={e => setMatrixFuncType(e.target.value as any)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
+                                <option value="exp">exp(A)</option>
+                                <option value="log">log(A)</option>
+                                <option value="sqrt">sqrt(A)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button onClick={handleComputeMatrixFunction} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Compute</button>
+                    {matrixFuncError && <div className="text-sm text-red-500">{matrixFuncError}</div>}
+                    {matrixFuncResult && (
+                        <div className="glass-input/50 rounded-lg p-3">
+                            <LatexRenderer latex={formatNumericMatrixToLatex(matrixFuncResult, numberFormat)} />
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Jordan Form" isOpen={isJordanOpen} onClose={() => setJordanOpen(false)}>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-sm text-secondary">Matrix</label>
+                        <select value={jordanTarget} onChange={e => setJordanTarget(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
+                            {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                        </select>
+                    </div>
+                    <button onClick={handleComputeJordan} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Compute</button>
+                    {jordanResult && (
+                        <div className="space-y-2">
+                            {jordanResult.warning && <div className="text-sm text-yellow-600">{jordanResult.warning}</div>}
+                            <LatexRenderer latex={`J = ${formatNumericMatrixToLatex(jordanResult.J, numberFormat)}`} />
+                            <LatexRenderer latex={`P = ${formatNumericMatrixToLatex(jordanResult.P, numberFormat)}`} />
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Iterative Solvers" isOpen={isIterativeOpen} onClose={() => setIterativeOpen(false)}>
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-sm text-secondary">Matrix</label>
+                            <select value={iterativeTarget} onChange={e => setIterativeTarget(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
+                                {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-sm text-secondary">Method</label>
+                            <select value={iterativeMethod} onChange={e => setIterativeMethod(e.target.value as any)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
+                                <option value="jacobi">Jacobi</option>
+                                <option value="gs">Gauss-Seidel</option>
+                                <option value="cg">Conjugate Gradient</option>
+                                <option value="gmres">GMRES</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label className="text-sm text-secondary">Tolerance
+                            <input type="number" value={iterativeTol} onChange={e => setIterativeTol(parseFloat(e.target.value) || 1e-6)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink" />
+                        </label>
+                        <label className="text-sm text-secondary">Max Iter
+                            <input type="number" value={iterativeMaxIter} onChange={e => setIterativeMaxIter(parseInt(e.target.value) || 50)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink" />
+                        </label>
+                        <label className="text-sm text-secondary">Preconditioner
+                            <select value={iterativePrecond} onChange={e => setIterativePrecond(e.target.value as any)} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
+                                <option value="none">None</option>
+                                <option value="jacobi">Jacobi</option>
+                                <option value="ilu">ILU0</option>
+                            </select>
+                        </label>
+                    </div>
+                    <button onClick={handleRunIterative} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Run Solver</button>
+                    {iterativeError && <div className="text-sm text-red-500">{iterativeError}</div>}
+                    {iterativeResult && (
+                        <div className="space-y-2">
+                            <div className="text-sm text-secondary">x = [{iterativeResult.x.map(v => v.toFixed(4)).join(', ')}]</div>
+                            <div className="text-xs text-secondary">Residuals: {iterativeResult.residuals.slice(0, 10).map(v => v.toExponential(2)).join(', ')}{iterativeResult.residuals.length > 10 ? '…' : ''}</div>
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Exercise Packs" isOpen={isExerciseOpen} onClose={() => setExerciseOpen(false)}>
+                <div className="space-y-4">
+                    <div className="text-sm text-secondary">Load offline exercise packs (JSON) and auto-grade solutions.</div>
+                    <input type="file" accept=".json" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await handleImportExercisePack(file); } catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); } finally { e.currentTarget.value = ''; } }} />
+                    <select value={activePackId || ''} onChange={e => setActivePackId(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink">
+                        <option value="">Select Pack</option>
+                        {exercisePacks.map(pack => <option key={pack.id} value={pack.id}>{pack.title || pack.id}</option>)}
+                    </select>
+                    {activePackId && (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setActiveExerciseIndex(i => Math.max(0, i - 1))} className="px-2 py-1 rounded-lg glass-btn">Prev</button>
+                                <button onClick={() => setActiveExerciseIndex(i => i + 1)} className="px-2 py-1 rounded-lg glass-btn">Next</button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {(exercisePacks.find(p => p.id === activePackId)?.exercises?.[activeExerciseIndex]?.prompt || 'Solve Ax=b.')}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {exerciseAnswer.map((val, idx) => (
+                                    <input key={idx} value={val} onChange={e => { const next = [...exerciseAnswer]; next[idx] = e.target.value; setExerciseAnswer(next); }} className="w-20 rounded-md glass-input px-2 py-1 text-ink" placeholder={`x${idx + 1}`} />
+                                ))}
+                            </div>
+                            <button onClick={handleCheckExercise} className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm">Check</button>
+                            {exerciseFeedback && <div className="text-sm text-secondary">{exerciseFeedback}</div>}
+                        </div>
+                    )}
+                </div>
+            </Modal>
+            <Modal title="Plugins" isOpen={isPluginsOpen} onClose={() => setPluginsOpen(false)}>
+                <div className="space-y-4">
+                    <div className="text-sm text-secondary">Import offline plugins (JSON) that register new commands or macros.</div>
+                    <input type="file" accept=".json" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await handleImportPlugin(file); } catch (err) { setError(err instanceof Error ? err.message : 'Plugin import failed.'); } finally { e.currentTarget.value = ''; } }} />
+                    <div className="space-y-2">
+                        {plugins.map(plugin => (
+                            <div key={plugin.id} className="p-2 rounded-lg glass-input/50">
+                                <div className="font-semibold text-ink">{plugin.name || plugin.id}</div>
+                                <div className="text-xs text-secondary">{(plugin.commands || []).length} commands</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </Modal>
+            <Modal title="Project Versions" isOpen={isVersionsOpen} onClose={() => setVersionsOpen(false)}>
+                <div className="space-y-4">
+                    <div className="flex gap-2">
+                        <input value={versionName} onChange={e => setVersionName(e.target.value)} placeholder="Version name" className="flex-1 rounded-md glass-input px-3 py-2 text-ink" />
+                        <button onClick={handleSaveVersion} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Save</button>
+                    </div>
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {projectVersions.map(version => (
+                            <div key={version.id} className="flex items-center justify-between p-2 rounded-lg glass-input/50">
+                                <div>
+                                    <div className="font-medium text-ink">{version.name}</div>
+                                    <div className="text-xs text-secondary">{new Date(version.createdAt).toLocaleString()}</div>
+                                </div>
+                                <button onClick={() => handleRestoreVersion(version.id)} className="px-2 py-1 rounded-lg glass-btn text-xs">Restore</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </Modal>
+            <Modal title="Step Compare" isOpen={isStepCompareOpen} onClose={() => setStepCompareOpen(false)}>
+                <div className="space-y-4">
+                    <div className="text-sm text-secondary">Upload a JSON file with {`{\"steps\":[{\"matrix\":[...]}]}`} to compare against solver steps.</div>
+                    <input type="file" accept=".json" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; await handleCompareSteps(file); e.currentTarget.value = ''; }} />
+                    {stepCompareResult && <div className="text-sm text-ink">{stepCompareResult}</div>}
+                </div>
+            </Modal>
             <Modal title="Sparse Matrix View" isOpen={isSparseOpen} onClose={() => setSparseOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Inspect CSR/CSC arrays and a sparsity heatmap.</span>
                         <InfoButton infoKey="sparse" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Matrix</label>
-                            <select value={sparseTarget} onChange={e => setSparseTarget(e.target.value)} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                            <label className="text-sm text-secondary">Matrix</label>
+                            <select value={sparseTarget} onChange={e => setSparseTarget(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
                                 {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Format</label>
-                            <select value={sparseFormat} onChange={e => setSparseFormat(e.target.value as 'csr' | 'csc')} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                            <label className="text-sm text-secondary">Format</label>
+                            <select value={sparseFormat} onChange={e => setSparseFormat(e.target.value as 'csr' | 'csc')} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink">
                                 <option value="csr">CSR</option>
                                 <option value="csc">CSC</option>
                             </select>
                         </div>
                         <div>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Zero Threshold</label>
-                            <input type="number" value={sparseEpsilon} onChange={e => setSparseEpsilon(Number(e.target.value) || 0)} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                            <label className="text-sm text-secondary">Zero Threshold</label>
+                            <input type="number" value={sparseEpsilon} onChange={e => setSparseEpsilon(Number(e.target.value) || 0)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink" />
                         </div>
                     </div>
                     {(() => {
                         const matrix = resolveMatrixByKey(sparseTarget);
-                        if (!matrix) return <p className="text-sm text-gray-500 dark:text-slate-400">Select a matrix to inspect.</p>;
+                        if (!matrix) return <p className="text-sm text-secondary">Select a matrix to inspect.</p>;
                         const rows = matrix.length;
                         const cols = matrix[0]?.length || 0;
                         const nonZeros = matrix.flat().filter(cell => !isZeroCell(cell, sparseEpsilon)).length;
@@ -2546,21 +3400,21 @@ const App: React.FC = () => {
                         const data = sparseFormat === 'csr' ? csr : csc;
                         return (
                             <div className="space-y-3">
-                                <div className="text-sm text-gray-600 dark:text-gray-300">Non-zeros: {nonZeros} · Density: {(density * 100).toFixed(2)}%</div>
+                                <div className="text-sm text-secondary">Non-zeros: {nonZeros} · Density: {(density * 100).toFixed(2)}%</div>
                                 <div>
-                                    <div className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">Sparsity Heatmap</div>
+                                    <div className="text-sm font-semibold text-secondary mb-2">Sparsity Heatmap</div>
                                     {renderSparsityHeatmap(matrix, sparseEpsilon)}
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded">
+                                    <div className="p-2 glass-panel rounded">
                                         <div className="font-semibold mb-1">Values</div>
                                         <pre className="whitespace-pre-wrap break-words">{JSON.stringify(data.values)}</pre>
                                     </div>
-                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded">
+                                    <div className="p-2 glass-panel rounded">
                                         <div className="font-semibold mb-1">{sparseFormat === 'csr' ? 'Column Index' : 'Row Index'}</div>
                                         <pre className="whitespace-pre-wrap break-words">{JSON.stringify(sparseFormat === 'csr' ? csr.colIndex : csc.rowIndex)}</pre>
                                     </div>
-                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded sm:col-span-2">
+                                    <div className="p-2 glass-panel rounded sm:col-span-2">
                                         <div className="font-semibold mb-1">{sparseFormat === 'csr' ? 'Row Pointer' : 'Column Pointer'}</div>
                                         <pre className="whitespace-pre-wrap break-words">{JSON.stringify(sparseFormat === 'csr' ? csr.rowPtr : csc.colPtr)}</pre>
                                     </div>
@@ -2572,27 +3426,27 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Batch Runner" isOpen={isBatchOpen} onClose={() => setBatchOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Run the same analysis or expression across saved matrices.</span>
                         <InfoButton infoKey="batch" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="text-sm text-gray-600 dark:text-gray-300">Mode
-                            <select value={batchMode} onChange={e => setBatchMode(e.target.value as 'analysis' | 'expression')} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                        <label className="text-sm text-secondary">Mode
+                            <select value={batchMode} onChange={e => setBatchMode(e.target.value as 'analysis' | 'expression')} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink">
                                 <option value="analysis">Analysis (uses current analysis settings)</option>
                                 <option value="expression">Matrix Operation (A-only)</option>
                             </select>
                         </label>
                         {batchMode === 'expression' && (
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Expression
-                                <input value={batchExpression} onChange={e => setBatchExpression(e.target.value.toUpperCase())} className="mt-1 w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                            <label className="text-sm text-secondary">Expression
+                                <input value={batchExpression} onChange={e => setBatchExpression(e.target.value.toUpperCase())} className="mt-1 w-full rounded-md glass-input px-3 py-2 text-ink" />
                             </label>
                         )}
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {library.length === 0 && <p className="text-sm text-gray-500 dark:text-slate-400">No matrices saved in the library.</p>}
+                        {library.length === 0 && <p className="text-sm text-secondary">No matrices saved in the library.</p>}
                         {library.map(item => (
-                            <label key={item.id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                            <label key={item.id} className="flex items-center gap-2 text-sm text-secondary">
                                 <input
                                     type="checkbox"
                                     checked={batchSelectedIds.includes(item.id)}
@@ -2604,20 +3458,20 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button onClick={handleRunBatch} disabled={batchRunning} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm disabled:opacity-50">{batchRunning ? 'Running...' : 'Run Batch'}</button>
-                        <button onClick={exportBatchReport} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm">Export JSON</button>
-                        <button onClick={() => triggerPrint('batch')} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm">Print</button>
+                        <button onClick={exportBatchReport} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
+                        <button onClick={() => triggerPrint('batch')} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Print</button>
                     </div>
                     {batchResults.length > 0 && (
                         <div className="space-y-2 max-h-60 overflow-y-auto">
                             {batchResults.map(item => (
-                                <div key={item.id} className="p-2 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-sm">
-                                    <div className="font-medium text-slate-800 dark:text-slate-200">{item.name}</div>
+                                <div key={item.id} className="p-2 rounded-lg glass-input/50 text-sm">
+                                    <div className="font-medium text-ink">{item.name}</div>
                                     {item.error && <div className="text-red-500">{item.error}</div>}
                                     {item.result && 'kind' in item.result && item.result.kind === 'analysis' && (
-                                        <div className="text-xs text-slate-600 dark:text-slate-300">Rank: {item.result.rank}</div>
+                                        <div className="text-xs text-secondary">Rank: {item.result.rank}</div>
                                     )}
                                     {item.result && 'finalResult' in item.result && (
-                                        <div className="text-xs text-slate-600 dark:text-slate-300">Operation result available</div>
+                                        <div className="text-xs text-secondary">Operation result available</div>
                                     )}
                                 </div>
                             ))}
@@ -2627,21 +3481,21 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Matrix Recipes" isOpen={isRecipesOpen} onClose={() => setRecipesOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Save operation sequences as reusable macros.</span>
                         <InfoButton infoKey="recipes" />
                     </div>
                     <div className="flex gap-2">
-                        <input value={recipeName} onChange={e => setRecipeName(e.target.value)} placeholder="Recipe name" className="flex-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                        <input value={recipeName} onChange={e => setRecipeName(e.target.value)} placeholder="Recipe name" className="flex-1 rounded-md glass-input px-3 py-2 text-ink" />
                         <button onClick={() => { handleSaveRecipe(recipeName); setRecipeName(''); }} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save</button>
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {recipes.length === 0 && <p className="text-sm text-gray-500 dark:text-slate-400">No recipes saved yet.</p>}
+                        {recipes.length === 0 && <p className="text-sm text-secondary">No recipes saved yet.</p>}
                         {recipes.map(recipe => (
-                            <div key={recipe.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-slate-700/50">
+                            <div key={recipe.id} className="flex items-center justify-between p-2 rounded-lg glass-input/50">
                                 <div className="min-w-0">
-                                    <div className="font-medium text-slate-800 dark:text-slate-200 truncate">{recipe.name}</div>
-                                    <div className="text-xs text-gray-500 dark:text-slate-400 truncate">{recipe.expression}</div>
+                                    <div className="font-medium text-ink truncate">{recipe.name}</div>
+                                    <div className="text-xs text-secondary truncate">{recipe.expression}</div>
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => handleApplyRecipe(recipe)} className="py-1 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs">Apply</button>
@@ -2654,13 +3508,13 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Variable Assumptions" isOpen={isAssumptionsOpen} onClose={() => setAssumptionsOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Set symbolic constraints that flow into steps and reports.</span>
                         <InfoButton infoKey="assumptions" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
-                        <input value={assumptionVar} onChange={e => setAssumptionVar(e.target.value)} placeholder="Variable (e.g., a)" className="rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
-                        <select value={assumptionConstraint} onChange={e => setAssumptionConstraint(e.target.value as VariableAssumption['constraint'])} className="rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white">
+                        <input value={assumptionVar} onChange={e => setAssumptionVar(e.target.value)} placeholder="Variable (e.g., a)" className="rounded-md glass-input px-3 py-2 text-ink" />
+                        <select value={assumptionConstraint} onChange={e => setAssumptionConstraint(e.target.value as VariableAssumption['constraint'])} className="rounded-md glass-input px-3 py-2 text-ink">
                             <option value="nonzero">nonzero</option>
                             <option value="positive">positive</option>
                             <option value="negative">negative</option>
@@ -2669,10 +3523,10 @@ const App: React.FC = () => {
                         <button onClick={handleAddAssumption} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Add</button>
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {variableAssumptions.length === 0 && <p className="text-sm text-gray-500 dark:text-slate-400">No assumptions set.</p>}
+                        {variableAssumptions.length === 0 && <p className="text-sm text-secondary">No assumptions set.</p>}
                         {variableAssumptions.map((assumption, idx) => (
-                            <div key={`${assumption.variable}-${idx}`} className="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-slate-700/50">
-                                <div className="text-sm text-slate-700 dark:text-slate-200">{assumption.variable} is {assumption.constraint}</div>
+                            <div key={`${assumption.variable}-${idx}`} className="flex items-center justify-between p-2 rounded-lg glass-input/50">
+                                <div className="text-sm text-ink">{assumption.variable} is {assumption.constraint}</div>
                                 <button onClick={() => handleRemoveAssumption(idx)} className="py-1 px-3 rounded-lg bg-red-600 text-white hover:bg-red-700 text-xs">Remove</button>
                             </div>
                         ))}
@@ -2681,20 +3535,20 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Workspace Profiles" isOpen={isProfilesOpen} onClose={() => setProfilesOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Profiles keep libraries, history, and settings isolated.</span>
                         <InfoButton infoKey="profiles" />
                     </div>
                     <div className="flex gap-2">
-                        <input value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="New profile name" className="flex-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white" />
+                        <input value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="New profile name" className="flex-1 rounded-md glass-input px-3 py-2 text-ink" />
                         <button onClick={handleCreateProfile} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Create</button>
                     </div>
                     <div className="space-y-2">
                         {profiles.map(profile => (
-                            <div key={profile.id} className={`flex items-center justify-between p-2 rounded-lg border ${activeProfile === profile.id ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-700/50'}`}>
-                                <div className="font-medium text-slate-800 dark:text-slate-200">{profile.name}</div>
+                            <div key={profile.id} className={`flex items-center justify-between p-2 rounded-lg border ${activeProfile === profile.id ? 'border-indigo-500 bg-indigo-50' : 'border-[var(--glass-border)] glass-panel'}`}>
+                                <div className="font-medium text-ink">{profile.name}</div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => handleSwitchProfile(profile.id)} className="py-1 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-xs">Switch</button>
+                                    <button onClick={() => handleSwitchProfile(profile.id)} className="py-1 px-3 rounded-lg glass-btn text-xs">Switch</button>
                                     <button onClick={() => handleDeleteProfile(profile.id)} className="py-1 px-3 rounded-lg bg-red-600 text-white hover:bg-red-700 text-xs">Delete</button>
                                 </div>
                             </div>
@@ -2703,8 +3557,8 @@ const App: React.FC = () => {
                 </div>
             </Modal>
             <Modal title="Offline Help Pack" isOpen={isHelpOpen} onClose={() => setHelpOpen(false)}>
-                <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300 max-h-[60vh] overflow-y-auto pr-2">
-                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
+                <div className="space-y-4 text-sm text-secondary max-h-[60vh] overflow-y-auto pr-2">
+                    <div className="flex items-center gap-2 text-xs text-secondary">
                         <span>Local quick start and examples.</span>
                         <InfoButton infoKey="help" />
                     </div>
@@ -2712,9 +3566,9 @@ const App: React.FC = () => {
                     <p>Use the System Solver to reduce augmented matrices, the Matrix Operations tab for algebraic expressions, or Analysis for decompositions.</p>
                     <h3 className="font-semibold text-lg">Example Matrices</h3>
                     <div className="space-y-2">
-                        <button onClick={() => { const m = generatePresetMatrix('identity', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Load 3x3 Identity (Analysis)</button>
-                        <button onClick={() => { const m = generatePresetMatrix('hilbert', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Load 3x3 Hilbert (Analysis)</button>
-                        <button onClick={() => { const m = generatePresetMatrix('spd', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600">Load Random SPD (Analysis)</button>
+                        <button onClick={() => { const m = generatePresetMatrix('identity', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg glass-btn">Load 3x3 Identity (Analysis)</button>
+                        <button onClick={() => { const m = generatePresetMatrix('hilbert', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg glass-btn">Load 3x3 Hilbert (Analysis)</button>
+                        <button onClick={() => { const m = generatePresetMatrix('spd', 3, 3); applyMatrixToTarget(m, 'analysis'); }} className="py-2 px-3 rounded-lg glass-btn">Load Random SPD (Analysis)</button>
                     </div>
                     <h3 className="font-semibold text-lg">Guided Walkthrough</h3>
                     <ol className="list-decimal list-inside space-y-1">
@@ -2727,7 +3581,7 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Documentation" isOpen={isDocsOpen} onClose={() => setDocsOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Full manual with a printable PDF.</span>
                         <InfoButton infoKey="documentation" />
                     </div>
@@ -2736,39 +3590,39 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => triggerPrint('docs')} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Print / Save PDF</button>
-                        <button onClick={() => setDocsOpen(false)} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm">Close</button>
+                        <button onClick={() => setDocsOpen(false)} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Close</button>
                     </div>
                 </div>
             </Modal>
             <Modal title="Print / PDF Report" isOpen={isReportOpen} onClose={() => setReportOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Generate a styled PDF report offline.</span>
                         <InfoButton infoKey="report" />
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-slate-400">Use your browser's Print dialog to save as PDF. The report will include cover and TOC based on your report settings.</p>
+                    <p className="text-sm text-secondary">Use your browser's Print dialog to save as PDF. The report will include cover and TOC based on your report settings.</p>
                     <div className="flex gap-2">
                         <button onClick={() => triggerPrint('report')} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Print / Save PDF</button>
-                        <button onClick={() => setReportOpen(false)} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm">Close</button>
+                        <button onClick={() => setReportOpen(false)} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Close</button>
                     </div>
                 </div>
             </Modal>
             <Modal title="Compare Matrices" isOpen={isCompareModalOpen} onClose={() => setCompareModalOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Highlight differences between two matrices.</span>
                         <InfoButton infoKey="compare" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Left Matrix</label>
-                            <select value={compareLeftKey} onChange={e => setCompareLeftKey(e.target.value)} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <label className="text-sm text-secondary">Left Matrix</label>
+                            <select value={compareLeftKey} onChange={e => setCompareLeftKey(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                                 {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Right Matrix</label>
-                            <select value={compareRightKey} onChange={e => setCompareRightKey(e.target.value)} className="w-full mt-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <label className="text-sm text-secondary">Right Matrix</label>
+                            <select value={compareRightKey} onChange={e => setCompareRightKey(e.target.value)} className="w-full mt-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                                 {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                             </select>
                         </div>
@@ -2778,10 +3632,10 @@ const App: React.FC = () => {
                         const left = resolveMatrixByKey(compareLeftKey);
                         const right = resolveMatrixByKey(compareRightKey);
                         if (!left || !right) {
-                            return <p className="text-sm text-gray-500 dark:text-slate-400">Select two matrices to compare.</p>;
+                            return <p className="text-sm text-secondary">Select two matrices to compare.</p>;
                         }
                         if ((left[0]?.length || 0) !== (right[0]?.length || 0) || left.length !== right.length) {
-                            return <p className="text-sm text-yellow-600 dark:text-yellow-400">Matrices have different dimensions. Comparison is still shown, but unmatched cells are highlighted.</p>;
+                            return <p className="text-sm text-yellow-600">Matrices have different dimensions. Comparison is still shown, but unmatched cells are highlighted.</p>;
                         }
                         return null;
                     })()}
@@ -2794,11 +3648,11 @@ const App: React.FC = () => {
                         return (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
-                                    <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">Left</h4>
+                                    <h4 className="text-sm font-semibold text-secondary mb-2">Left</h4>
                                     {renderMatrixPreview(left, diff)}
                                 </div>
                                 <div>
-                                    <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">Right</h4>
+                                    <h4 className="text-sm font-semibold text-secondary mb-2">Right</h4>
                                     {renderMatrixPreview(right, diff)}
                                 </div>
                             </div>
@@ -2808,46 +3662,46 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="History & Snapshots" isOpen={isHistoryOpen} onClose={() => setHistoryOpen(false)}>
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-secondary">
                         <span>Undo/redo with named snapshots.</span>
                         <InfoButton infoKey="history" />
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2 text-xs text-secondary">
                         <span>Cached determinant and inverse results appear in snapshots.</span>
                         <InfoButton infoKey="determinantCache" className="w-4 h-4 text-[10px]" />
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={handleUndoSnapshot} disabled={historyIndex <= 0} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-sm disabled:opacity-50">Undo</button>
-                        <button onClick={handleRedoSnapshot} disabled={historyIndex >= history.length - 1} className="flex-1 py-2 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-sm disabled:opacity-50">Redo</button>
+                        <button onClick={handleUndoSnapshot} disabled={historyIndex <= 0} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm disabled:opacity-50">Undo</button>
+                        <button onClick={handleRedoSnapshot} disabled={historyIndex >= history.length - 1} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm disabled:opacity-50">Redo</button>
                     </div>
                     <div className="flex gap-2">
-                        <input value={snapshotName} onChange={e => setSnapshotName(e.target.value)} placeholder="Snapshot name" className="flex-1 rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input value={snapshotName} onChange={e => setSnapshotName(e.target.value)} placeholder="Snapshot name" className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                         <button onClick={() => createSnapshot(snapshotName)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save</button>
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                    <label className="flex items-center gap-2 text-sm text-secondary">
                         <input type="checkbox" checked={autoSnapshotOnCalculate} onChange={e => setAutoSnapshotOnCalculate(e.target.checked)} />
                         Auto-snapshot on calculate
                     </label>
                     <div className="space-y-2 max-h-72 overflow-y-auto">
                         {history.length === 0 ? (
-                            <p className="text-sm text-gray-500 dark:text-slate-400">No snapshots yet. Save one to get started.</p>
+                            <p className="text-sm text-secondary">No snapshots yet. Save one to get started.</p>
                         ) : history.map((snap, index) => {
                             const cached = getSnapshotCacheSummary(snap);
                             const detValue = cached?.determinant ? stringifySymbolicFraction(cached.determinant.value) : null;
                             const inverseLabel = cached?.inverse ? (cached.inverse.exists ? 'Inverse: yes' : 'Inverse: no') : null;
                             return (
-                                <div key={snap.id} className={`flex items-center justify-between p-2 rounded-lg border ${index === historyIndex ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-700/50'}`}>
+                                <div key={snap.id} className={`flex items-center justify-between p-2 rounded-lg border ${index === historyIndex ? 'border-indigo-500 bg-indigo-50' : 'border-[var(--glass-border)] glass-panel'}`}>
                                     <div className="min-w-0">
-                                        <div className="font-medium text-slate-800 dark:text-slate-200 truncate">{snap.name}</div>
-                                        <div className="text-xs text-gray-500 dark:text-slate-400">{new Date(snap.createdAt).toLocaleString()}</div>
+                                        <div className="font-medium text-ink truncate">{snap.name}</div>
+                                        <div className="text-xs text-secondary">{new Date(snap.createdAt).toLocaleString()}</div>
                                         {(detValue || inverseLabel) && (
-                                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                            <div className="text-[11px] text-secondary">
                                                 {detValue ? `det(A)=${detValue}` : ''}{detValue && inverseLabel ? ' · ' : ''}{inverseLabel || ''}
                                             </div>
                                         )}
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => applySnapshotAtIndex(index)} className="py-1 px-3 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-xs">Load</button>
+                                        <button onClick={() => applySnapshotAtIndex(index)} className="py-1 px-3 rounded-lg glass-btn text-xs">Load</button>
                                         <button onClick={() => deleteSnapshot(snap.id)} className="py-1 px-3 rounded-lg bg-red-600 text-white hover:bg-red-700 text-xs">Delete</button>
                                     </div>
                                 </div>
@@ -2858,26 +3712,26 @@ const App: React.FC = () => {
             </Modal>
             <Modal title="Settings" isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="space-y-6">
-                    <div><label className="font-medium text-gray-700 dark:text-gray-300">Theme</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setTheme('light')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'light' ? 'tab active' : ''}`}>Light</button><button onClick={() => setTheme('dark')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'dark' ? 'tab active' : ''}`}>Dark</button><button onClick={() => setTheme('custom')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'custom' ? 'tab active' : ''}`}>Custom</button></div></div>
+                    <div><label className="font-medium text-secondary">Theme</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setTheme('light')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'light' ? 'tab active' : ''}`}>Light</button><button onClick={() => setTheme('dark')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'dark' ? 'tab active' : ''}`}>Dark</button><button onClick={() => setTheme('custom')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'custom' ? 'tab active' : ''}`}>Custom</button></div></div>
                     {theme === 'custom' && (
                         <div className="p-4 border border-slate-300 dark:border-slate-600 rounded-lg space-y-3">
                             <h3 className="font-semibold text-lg" style={{color: 'var(--primary-text-color)'}}>Customize Colors</h3>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                                 {Object.entries(customThemeColors).map(([key, value]) => (
                                     <label key={key} className="flex items-center justify-between text-sm">
-                                        <span className="capitalize text-gray-600 dark:text-slate-300">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                        <span className="capitalize text-secondary">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
                                         <input type="color" value={value} onChange={e => setCustomThemeColors(c => ({ ...c, [key]: e.target.value }))} className="w-8 h-8 p-0 border-0 rounded bg-transparent" />
                                     </label>
                                 ))}
                             </div>
-                            <button onClick={() => setCustomThemeColors(defaultCustomColors)} className="text-sm w-full mt-2 py-2 px-4 rounded-lg bg-slate-500 text-white hover:bg-slate-600">Reset to Defaults</button>
+                            <button onClick={() => setCustomThemeColors(defaultCustomColors)} className="text-sm w-full mt-2 py-2 px-4 rounded-lg glass-btn">Reset to Defaults</button>
                         </div>
                     )}
-                    <div><label className="font-medium text-gray-700 dark:text-gray-300">Display Density</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setDensity('comfortable')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'comfortable' ? 'tab active' : ''}`}>Comfortable</button><button onClick={() => setDensity('compact')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'compact' ? 'tab active' : ''}`}>Compact</button></div></div>
-                    <div><label className="font-medium text-gray-700 dark:text-gray-300">Font Size</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setFontSize('small')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'small' ? 'tab active' : ''}`}>Small</button><button onClick={() => setFontSize('medium')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'medium' ? 'tab active' : ''}`}>Medium</button><button onClick={() => setFontSize('large')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'large' ? 'tab active' : ''}`}>Large</button></div></div>
+                    <div><label className="font-medium text-secondary">Display Density</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setDensity('comfortable')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'comfortable' ? 'tab active' : ''}`}>Comfortable</button><button onClick={() => setDensity('compact')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'compact' ? 'tab active' : ''}`}>Compact</button></div></div>
+                    <div><label className="font-medium text-secondary">Font Size</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setFontSize('small')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'small' ? 'tab active' : ''}`}>Small</button><button onClick={() => setFontSize('medium')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'medium' ? 'tab active' : ''}`}>Medium</button><button onClick={() => setFontSize('large')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'large' ? 'tab active' : ''}`}>Large</button></div></div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <label className="font-medium text-gray-700 dark:text-gray-300">Tutor Mode</label>
+                            <label className="font-medium text-secondary">Tutor Mode</label>
                             <InfoButton infoKey="tutorMode" />
                         </div>
                         <div className="flex glass-panel rounded-2xl p-1 mt-1">
@@ -2887,31 +3741,32 @@ const App: React.FC = () => {
                     </div>
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
-                            <label className="font-medium text-gray-700 dark:text-gray-300">Number Formatting</label>
+                            <label className="font-medium text-secondary">Number Formatting</label>
                             <InfoButton infoKey="numberFormat" />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Digits
-                                <input type="number" min="1" max="12" value={numberFormat.digits ?? 6} onChange={e => setNumberFormat(prev => ({ ...prev, digits: Math.max(1, Math.min(12, parseInt(e.target.value) || 6)) }))} className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-1 text-slate-800 dark:text-white" />
+                            <label className="text-sm text-secondary">Digits
+                                <input type="number" min="1" max="12" value={numberFormat.digits ?? 6} onChange={e => setNumberFormat(prev => ({ ...prev, digits: Math.max(1, Math.min(12, parseInt(e.target.value) || 6)) }))} className="mt-1 block w-full rounded-md glass-input px-2 py-1 text-ink" />
                             </label>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Mode
-                                <select value={numberFormat.mode ?? 'fixed'} onChange={e => setNumberFormat(prev => ({ ...prev, mode: e.target.value as NumberFormatOptions['mode'] }))} className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-1 text-slate-800 dark:text-white">
+                            <label className="text-sm text-secondary">Mode
+                                <select value={numberFormat.mode ?? 'fixed'} onChange={e => setNumberFormat(prev => ({ ...prev, mode: e.target.value as NumberFormatOptions['mode'] }))} className="mt-1 block w-full rounded-md glass-input px-2 py-1 text-ink">
+                                    <option value="auto">Auto</option>
                                     <option value="fixed">Fixed</option>
                                     <option value="scientific">Scientific</option>
                                     <option value="fraction">Fractionize</option>
                                 </select>
                             </label>
-                            <label className="text-sm text-gray-600 dark:text-gray-300">Max Denominator
-                                <input type="number" min="2" max="10000" value={numberFormat.fractionMaxDenominator ?? 1000} onChange={e => setNumberFormat(prev => ({ ...prev, fractionMaxDenominator: Math.max(2, Math.min(10000, parseInt(e.target.value) || 1000)) }))} className="mt-1 block w-full rounded-md bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-1 text-slate-800 dark:text-white" />
+                            <label className="text-sm text-secondary">Max Denominator
+                                <input type="number" min="2" max="10000" value={numberFormat.fractionMaxDenominator ?? 1000} onChange={e => setNumberFormat(prev => ({ ...prev, fractionMaxDenominator: Math.max(2, Math.min(10000, parseInt(e.target.value) || 1000)) }))} className="mt-1 block w-full rounded-md glass-input px-2 py-1 text-ink" />
                             </label>
                         </div>
                     </div>
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
-                            <label className="font-medium text-gray-700 dark:text-gray-300">Report Options</label>
+                            <label className="font-medium text-secondary">Report Options</label>
                             <InfoButton infoKey="report" />
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-secondary">
                             <label className="flex items-center gap-2"><input type="checkbox" checked={reportOptions.includeCover} onChange={e => setReportOptions(prev => ({ ...prev, includeCover: e.target.checked }))} /> Cover page</label>
                             <label className="flex items-center gap-2"><input type="checkbox" checked={reportOptions.includeTOC} onChange={e => setReportOptions(prev => ({ ...prev, includeTOC: e.target.checked }))} /> Table of contents</label>
                             <label className="flex items-center gap-2"><input type="checkbox" checked={reportOptions.includeSteps} onChange={e => setReportOptions(prev => ({ ...prev, includeSteps: e.target.checked }))} /> Include steps</label>
@@ -2923,13 +3778,13 @@ const App: React.FC = () => {
                 </div>
             </Modal>
             <Modal title={infoState.key ? `About ${INFO_CONTENT[infoState.key].title}` : 'Feature Info'} isOpen={infoState.open} onClose={closeInfo}>
-                <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+                <div className="space-y-4 text-sm text-secondary">
                     <p>{infoState.key ? INFO_CONTENT[infoState.key].summary : ''}</p>
                     <button onClick={() => { closeInfo(); setDocsOpen(true); }} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Open Full Documentation</button>
                 </div>
             </Modal>
             <Modal title={`What is ${explainerState.topic}?`} isOpen={explainerState.isOpen} onClose={() => setExplainerState({ isOpen: false, topic: '', content: '' })}>
-                <div className="text-left space-y-4 max-h-[60vh] overflow-y-auto pr-2 text-gray-700 dark:text-gray-300">
+                <div className="text-left space-y-4 max-h-[60vh] overflow-y-auto pr-2 text-secondary">
                     {renderExplanationContent(explainerState.content)}
                 </div>
             </Modal>

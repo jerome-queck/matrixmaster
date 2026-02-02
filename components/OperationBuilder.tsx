@@ -132,18 +132,18 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
         <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
                 <div className="relative inline-block text-left">
-                     <select onChange={(e) => handleLoadPreset(e.target.value)} defaultValue="" className="text-sm py-2 pl-3 pr-8 rounded-md bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-200 transition-colors appearance-none">
+                     <select onChange={(e) => handleLoadPreset(e.target.value)} defaultValue="" className="text-sm py-2 pl-3 pr-8 rounded-md glass-input appearance-none">
                         <option value="" disabled>Load Preset...</option>
                         {Object.keys(PRESETS).map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                 </div>
-                <button onClick={handleAddNode} className="text-sm py-2 px-4 rounded-md bg-blue-500 hover:bg-blue-600 text-white transition-colors">Add Operation Step</button>
+                <button onClick={handleAddNode} className="text-sm py-2 px-4 rounded-md glass-btn glass-btn-primary">Add Operation Step</button>
             </div>
             
             {nodes.length === 0 ? (
-                <div className="text-center py-8 px-4 border-2 border-dashed border-slate-300/50 dark:border-slate-700/50 rounded-lg">
-                    <p className="text-slate-500 dark:text-slate-400">The visual builder is empty.</p>
-                    <p className="text-sm text-slate-400 dark:text-slate-500">Add a step or load a preset to begin.</p>
+                <div className="text-center py-8 px-4 border-2 border-dashed rounded-lg glass-panel">
+                    <p className="text-secondary">The visual builder is empty.</p>
+                    <p className="text-sm text-secondary">Add a step or load a preset to begin.</p>
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -151,14 +151,14 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
                          const availableOperands = availableOperandsByStep[index];
 
                         return (
-                        <div key={node.id} className={`p-4 rounded-lg border transition-all ${node.error ? 'bg-red-900/20 border-red-700/50' : 'bg-slate-800/20 border-slate-700/50'}`}>
+                        <div key={node.id} className={`p-4 rounded-lg border transition-all ${node.error ? 'bg-red-500/10 border-red-500/40' : 'glass-panel'}`}>
                             <div className="flex justify-between items-center mb-3">
-                                <input type="text" value={node.resultName} onChange={(e) => handleNodeChange(node.id, 'resultName', e.target.value)} className="font-bold text-lg bg-transparent text-cyan-600 dark:text-cyan-300 focus:outline-none focus:ring-1 focus:ring-cyan-500 rounded px-1" />
+                                <input type="text" value={node.resultName} onChange={(e) => handleNodeChange(node.id, 'resultName', e.target.value)} className="font-bold text-lg bg-transparent text-primary focus:outline-none rounded px-1" />
                                 <button onClick={() => handleRemoveNode(node.id)} className="p-1 text-red-500 hover:bg-red-900/50 rounded-full" aria-label="Remove step"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 {/* Left Operand */}
-                                <select value={node.left ? `${node.left.type}-${node.left.value}` : ''} onChange={e => handleOperandChange(node.id, 'left', e.target.value)} className="flex-1 min-w-[120px] bg-slate-700 border border-slate-600 rounded-md px-2 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <select value={node.left ? `${node.left.type}-${node.left.value}` : ''} onChange={e => handleOperandChange(node.id, 'left', e.target.value)} className="flex-1 min-w-[120px] glass-input rounded-md px-2 py-2 focus:outline-none">
                                     <option value="">Select Operand</option>
                                     <optgroup label="Matrices">
                                        {availableMatrices.map(name => <option key={`matrix-${name}`} value={`matrix-${name}`}>{name} ({matrixDefs[name]?.rows || '?'}x{matrixDefs[name]?.cols || '?'})</option>)}
@@ -167,15 +167,15 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
                                 </select>
                                 
                                 {/* Operator */}
-                                <select value={node.operation} onChange={e => handleNodeChange(node.id, 'operation', e.target.value as OperationNode['operation'])} className="bg-slate-600 border border-slate-500 rounded-md px-2 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                <select value={node.operation} onChange={e => handleNodeChange(node.id, 'operation', e.target.value as OperationNode['operation'])} className="glass-input rounded-md px-2 py-2 focus:outline-none">
                                     <option value="+">+</option><option value="-">-</option><option value="*">*</option><option value="^">^</option>
                                 </select>
                                 
                                 {/* Right Operand */}
                                 {node.operation === '^' ? (
-                                    <input type="number" min="1" step="1" value={node.right?.type === 'number' ? node.right.value : '2'} onChange={e => handleOperandChange(node.id, 'right', `number-${e.target.value}`)} className="w-20 bg-slate-700 border border-slate-600 rounded-md px-2 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                                    <input type="number" min="1" step="1" value={node.right?.type === 'number' ? node.right.value : '2'} onChange={e => handleOperandChange(node.id, 'right', `number-${e.target.value}`)} className="w-20 glass-input rounded-md px-2 py-2 focus:outline-none" />
                                 ) : (
-                                    <select value={node.right ? `${node.right.type}-${node.right.value}` : ''} onChange={e => handleOperandChange(node.id, 'right', e.target.value)} className="flex-1 min-w-[120px] bg-slate-700 border border-slate-600 rounded-md px-2 py-2 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                    <select value={node.right ? `${node.right.type}-${node.right.value}` : ''} onChange={e => handleOperandChange(node.id, 'right', e.target.value)} className="flex-1 min-w-[120px] glass-input rounded-md px-2 py-2 focus:outline-none">
                                         <option value="">Select Operand</option>
                                         <optgroup label="Matrices">{availableMatrices.map(name => <option key={`matrix-${name}`} value={`matrix-${name}`}>{name} ({matrixDefs[name]?.rows || '?'}x{matrixDefs[name]?.cols || '?'})</option>)}</optgroup>
                                         {availableOperands.length > 0 && <optgroup label="Previous Results">{availableOperands.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</optgroup>}
