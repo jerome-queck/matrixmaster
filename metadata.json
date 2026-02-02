@@ -1,0 +1,5 @@
+{
+  "name": "Matrix Master: The Comprehensive Linear Algebra Calculator",
+  "description": "An advanced, comprehensive linear algebra calculator for systems of equations and matrix operations. It computes RREF, determinants, inverses, vector spaces (row, column, null), and solutions via Cramer's Rule. It also evaluates complex matrix expressions (A^2 * B - C), supports symbolic constants, and provides detailed, step-by-step workings for all calculations in clear LaTeX format.",
+  "requestFramePermissions": []
+}
