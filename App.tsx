@@ -315,6 +315,7 @@ const App: React.FC = () => {
     const [compareLeftKey, setCompareLeftKey] = useState('solver');
     const [compareRightKey, setCompareRightKey] = useState('analysis');
     const [theme, setTheme] = useState('dark');
+    const [appVersion, setAppVersion] = useState<string>('Web');
     const [density, setDensity] = useState('comfortable');
     const [fontSize, setFontSize] = useState<FontSize>('medium');
     const [customThemeColors, setCustomThemeColors] = useState<CustomThemeColors>(defaultCustomColors);
@@ -604,6 +605,14 @@ const App: React.FC = () => {
         }
         document.body.setAttribute('data-print-mode', printMode);
     }, [printMode]);
+
+    useEffect(() => {
+        if (window.electronAPI?.getAppVersion) {
+            window.electronAPI.getAppVersion()
+                .then(setAppVersion)
+                .catch(() => setAppVersion('Desktop'));
+        }
+    }, []);
 
     useEffect(() => {
         const handleAfterPrint = () => setPrintMode('none');
@@ -3729,6 +3738,10 @@ const App: React.FC = () => {
                     )}
                     <div><label className="font-medium text-secondary">Display Density</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setDensity('comfortable')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'comfortable' ? 'tab active' : ''}`}>Comfortable</button><button onClick={() => setDensity('compact')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'compact' ? 'tab active' : ''}`}>Compact</button></div></div>
                     <div><label className="font-medium text-secondary">Font Size</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setFontSize('small')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'small' ? 'tab active' : ''}`}>Small</button><button onClick={() => setFontSize('medium')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'medium' ? 'tab active' : ''}`}>Medium</button><button onClick={() => setFontSize('large')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'large' ? 'tab active' : ''}`}>Large</button></div></div>
+                    <div className="flex items-center justify-between text-sm text-secondary">
+                        <span>App Version</span>
+                        <span className="text-ink">{appVersion}</span>
+                    </div>
                     <div>
                         <div className="flex items-center gap-2">
                             <label className="font-medium text-secondary">Tutor Mode</label>
