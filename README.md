@@ -59,6 +59,12 @@ npm run electron:dist
 ```
 Artifacts are written to `dist/`.
 
+### Release checklist
+- Run: `npm run release:check`
+- Verify macOS artifacts: `.dmg`, `.zip`, `.blockmap`, `latest-mac.yml`
+- Verify Windows artifacts: `Setup.exe`, `.zip`, `.blockmap`
+- Upload artifacts to GitHub Release and confirm auto-update works
+
 ### Windows build (from macOS)
 ```bash
 npx electron-builder --win --x64 --publish=never

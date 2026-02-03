@@ -9,8 +9,14 @@ import {
   numericMatrixSqrt,
   numericConditionNumber,
   numericTrace,
+  numericLU,
+  numericQR,
+  numericEigenSymmetric,
+  formatSymbolicFractionToLatex,
   parseInput,
 } from '../services/matrixService.ts';
+import { buildStepsBundle } from '../services/exportService.ts';
+import type { CalculationResult, RowOperationStep } from '../types.ts';
 
 type Matrix = number[][];
 
@@ -113,6 +119,61 @@ const run = () => {
 
   assert(approxEqual(numericConditionNumber(identity3), 1, 1e-6), 'Condition number of identity should be 1');
   assert(approxEqual(numericTrace(identity3), 3, 1e-6), 'Trace of identity should be 3');
+
+  const luInput = [
+    [4, 3],
+    [6, 3],
+  ];
+  const lu = numericLU(luInput);
+  const multiply = (a: Matrix, b: Matrix): Matrix => a.map((row, i) => b[0].map((_, j) => row.reduce((sum, v, k) => sum + v * b[k][j], 0)));
+  const PA = multiply(lu.P, luInput);
+  const LU = multiply(lu.L, lu.U);
+  assertMatrixClose(PA, LU, 1e-6);
+
+  const qrInput = [
+    [1, 1],
+    [1, -1],
+  ];
+  const qr = numericQR(qrInput);
+  const QR = multiply(qr.Q, qr.R);
+  assertMatrixClose(QR, qrInput, 1e-6);
+
+  const eigInput = [
+    [2, 0],
+    [0, 3],
+  ];
+  const eig = numericEigenSymmetric(eigInput);
+  assertVectorClose(eig.values.sort((a, b) => a - b), [2, 3], 1e-6);
+
+  const sfLatex = formatSymbolicFractionToLatex(parseInput('1/2'));
+  assert(sfLatex.includes('1') && sfLatex.includes('2'), 'Symbolic fraction LaTeX should include numerator and denominator');
+
+  const stepMatrix = toSymbolicMatrix([
+    [1, 2],
+    [3, 4],
+  ]) as any;
+  const steps: RowOperationStep[] = [
+    { matrix: stepMatrix, operation: 'R_1 \\to R_1 + R_2', description: 'test' },
+  ];
+  const mockResult: CalculationResult = {
+    systemType: 'non-homogeneous',
+    conditions: [],
+    gaussJordanSteps: steps,
+    determinant: null,
+    inverse: null,
+    rowSpaceBasis: null,
+    colSpaceBasis: null,
+    nullSpace: null,
+    homogeneousSolutionSet: null,
+    solutionSetRef: null,
+    solutionSetRref: null,
+    cramersRule: null,
+  };
+  const bundle = buildStepsBundle(mockResult as any, { digits: 6, mode: 'fixed', fractionMaxDenominator: 1000 });
+  assert(bundle !== null, 'Steps bundle should be generated');
+  assert(!bundle!.latexBlock.includes('\\documentclass'), 'Clipboard LaTeX should not include document preamble');
+  assert(bundle!.texDoc.includes('\\documentclass'), 'TeX document should include preamble');
+  assert(!bundle!.texDoc.includes('\\\\documentclass'), 'TeX document should not contain double-escaped preamble');
 
   console.log('Calculation tests: PASS');
 };

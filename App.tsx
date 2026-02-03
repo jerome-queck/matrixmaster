@@ -8,6 +8,7 @@ import { OperationBuilder } from './components/OperationBuilder';
 import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
 import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, numericConditionNumber, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
+import { buildStepsBundle } from './services/exportService';
 import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
@@ -320,6 +321,10 @@ const App: React.FC = () => {
     const [latestVersion, setLatestVersion] = useState<string | null>(null);
     const [updateStatus, setUpdateStatus] = useState<{ state: string; percent?: number; message?: string; version?: string }>({ state: 'idle' });
     const [updateToastVisible, setUpdateToastVisible] = useState(false);
+    const [lastUpdateCheck, setLastUpdateCheck] = useState<string | null>(null);
+    const [diagnostics, setDiagnostics] = useState<string[]>([]);
+    const [healthError, setHealthError] = useState<string | null>(null);
+    const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'info' | 'error' }>>([]);
     const [density, setDensity] = useState('comfortable');
     const [fontSize, setFontSize] = useState<FontSize>('medium');
     const [customThemeColors, setCustomThemeColors] = useState<CustomThemeColors>(defaultCustomColors);
@@ -329,6 +334,7 @@ const App: React.FC = () => {
     const [variableAssumptions, setVariableAssumptions] = useState<VariableAssumption[]>([]);
     const [recipes, setRecipes] = useState<MatrixRecipe[]>([]);
     const [reportOptions, setReportOptions] = useState<ReportOptions>(defaultReportOptions);
+    const isDesktop = typeof window !== 'undefined' && !!window.electronAPI?.getAppVersion;
 
     // Workspace Profiles
     const [profiles, setProfiles] = useState<WorkspaceProfile[]>([]);
@@ -395,6 +401,38 @@ const App: React.FC = () => {
     const [versionName, setVersionName] = useState('');
     const [isStepCompareOpen, setStepCompareOpen] = useState(false);
     const [stepCompareResult, setStepCompareResult] = useState<string | null>(null);
+
+    const logDiagnostic = (message: string, data?: unknown) => {
+        if (!isDesktop) return;
+        const timestamp = new Date().toISOString();
+        const entry = data ? `${timestamp} ${message} | ${JSON.stringify(data)}` : `${timestamp} ${message}`;
+        setDiagnostics(prev => [entry, ...prev].slice(0, 200));
+    };
+
+    const pushToast = (message: string, type: 'info' | 'error' = 'info') => {
+        const id = `toast_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 5000);
+    };
+
+    const reportError = (message: string, data?: unknown) => {
+        setError(message);
+        pushToast(message, 'error');
+        logDiagnostic(message, data);
+    };
+
+    const copyDiagnostics = async () => {
+        const payload = diagnostics.join('\n');
+        await navigator.clipboard.writeText(payload);
+        pushToast('Diagnostics copied.', 'info');
+    };
+
+    const clearDiagnostics = () => {
+        setDiagnostics([]);
+        pushToast('Diagnostics cleared.', 'info');
+    };
 
     // Presets
     const [presetTarget, setPresetTarget] = useState('analysis');
@@ -619,10 +657,50 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        if (!isDesktop) return;
+        if (!window.electronAPI) {
+            setHealthError('Desktop bridge unavailable. Please restart the app.');
+            logDiagnostic('health-check-bridge', { electronAPI: false });
+        }
+        const timer = setTimeout(() => {
+            const root = document.getElementById('root');
+            if (!root || root.childElementCount === 0) {
+                setHealthError('Renderer failed to initialize. Try restarting the app.');
+                logDiagnostic('health-check-renderer', { rootFound: !!root, childCount: root?.childElementCount || 0 });
+            }
+        }, 1500);
+
+        window.electronAPI?.healthCheck?.()
+            .then((report: any) => {
+                if (report && report.indexExists === false) {
+                    setHealthError('App assets missing. Please reinstall the app.');
+                }
+                logDiagnostic('health-check-main', report);
+            })
+            .catch((err: any) => {
+                logDiagnostic('health-check-error', err?.message || err);
+            });
+
+        const unsubscribe = window.electronAPI?.onHealthStatus?.((payload: any) => {
+            if (payload?.status === 'error') {
+                setHealthError(payload.message || 'App failed to load.');
+            }
+            logDiagnostic('health-status', payload);
+        });
+
+        return () => {
+            clearTimeout(timer);
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
+    useEffect(() => {
         if (!window.electronAPI?.onUpdateStatus) return;
         const unsubscribe = window.electronAPI.onUpdateStatus((payload: any) => {
             setUpdateStatus(payload || { state: 'idle' });
             if (payload?.version) setLatestVersion(payload.version);
+            if (payload?.lastCheckedAt) setLastUpdateCheck(payload.lastCheckedAt);
+            if (payload?.state) logDiagnostic('update-status', payload);
         });
         return () => {
             if (unsubscribe) unsubscribe();
@@ -639,15 +717,15 @@ const App: React.FC = () => {
     }, [updateStatus.state]);
 
     const handleCheckForUpdates = () => {
-        window.electronAPI?.checkForUpdates?.().catch(() => undefined);
+        window.electronAPI?.checkForUpdates?.().catch((err: any) => reportError('Update check failed.', err));
     };
 
     const handleDownloadUpdate = () => {
-        window.electronAPI?.downloadUpdate?.().catch(() => undefined);
+        window.electronAPI?.downloadUpdate?.().catch((err: any) => reportError('Update download failed.', err));
     };
 
     const handleInstallUpdate = () => {
-        window.electronAPI?.installUpdate?.().catch(() => undefined);
+        window.electronAPI?.installUpdate?.().catch((err: any) => reportError('Update install failed.', err));
     };
 
     useEffect(() => {
@@ -2044,78 +2122,31 @@ const App: React.FC = () => {
         downloadFile('batch-report.json', JSON.stringify(payload, null, 2), 'application/json');
     };
 
-    const buildStepsBundle = () => {
-        if (!results) {
-            setError('No results to export.');
-            return null;
-        }
-
-        const sections: { title: string; blocks: string[] }[] = [];
-        const addSection = (title: string, blocks: string[]) => {
-            if (blocks.length > 0) sections.push({ title, blocks });
-        };
-        const escapeTexText = (input: string) => input.replace(/[&%$#_{}]/g, (m) => `\\${m}`);
-        const formatOpLatex = (op: string) => {
-            const looksLikeLatex = /[\\_^{}]/.test(op);
-            return looksLikeLatex ? op : `\\text{${escapeTexText(op)}}`;
-        };
-
-        if (results && 'systemType' in results) {
-            const systemResult = results as CalculationResult;
-            const formatter = (m: ValidMatrix) => systemResult.systemType === 'non-homogeneous' ? formatAugmentedMatrixToLatex(m, systemResult.systemType) : formatMatrixToLatex(m);
-            const steps = systemResult.gaussJordanSteps.map(step => {
-                const op = step.operation || 'Step';
-                const matrix = step.matrix ? formatter(step.matrix) : '';
-                return matrix ? `${formatOpLatex(op)}\\\\${matrix}` : formatOpLatex(op);
-            });
-            addSection('System Solver Steps', steps);
-            if (systemResult.determinant) addSection('Determinant', [`\\det(A) = ${formatSymbolicFractionToLatex(systemResult.determinant.value)}`]);
-            if (systemResult.inverse?.inverseMatrix) addSection('Inverse', [`A^{-1} = ${formatMatrixToLatex(systemResult.inverse.inverseMatrix)}`]);
-        } else if ('finalResult' in results) {
-            const opsResult = results as MatrixOperationsResult;
-            const steps = opsResult.steps.map(step => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
-            addSection('Matrix Operation Steps', steps);
-        } else if ('operationResult' in results) {
-            const detOps = results as DeterminantOfOperationResult;
-            const steps = detOps.operationResult.steps.map(step => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
-            addSection('Operation Steps', steps);
-            addSection('Determinant', [`\\det(A) = ${formatSymbolicFractionToLatex(detOps.determinant.value)}`]);
-        } else if ('kind' in results && results.kind === 'analysis') {
-            const analysis = results as MatrixAnalysisResult;
-            const blocks = [`\\text{Rank: } ${analysis.rank}`];
-            if (analysis.trace !== undefined) {
-                const traceLatex = analysis.mode === 'numeric' ? formatNumberToLatex(analysis.trace, numberFormat) : formatSymbolicFractionToLatex(analysis.trace);
-                blocks.push(`\\operatorname{tr}(A) = ${traceLatex}`);
-            }
-            addSection('Analysis Summary', blocks);
-        }
-
-        const md = sections.map(section => `## ${section.title}\n\n${section.blocks.map(block => `$$${block}$$`).join('\n\n')}`).join('\n\n');
-        const texBody = sections.map(section => `\\section*{${section.title}}\n${section.blocks.map(block => `\\[\n${block}\n\\]`).join('\n\n')}`).join('\n\n');
-        const texDoc = `\\documentclass{article}\n\\usepackage{amsmath}\n\\usepackage{amssymb}\n\\usepackage[margin=1in]{geometry}\n\\begin{document}\n${texBody}\n\\end{document}\n`;
-        const latexBlock = sections
-            .map(section => `% ${section.title}\n${section.blocks.map(block => `\\[\n${block}\n\\]`).join('\n\n')}`)
-            .join('\n\n');
-
-        return { md, texDoc, latexBlock };
-    };
-
     const exportStepsBundle = () => {
-        const bundle = buildStepsBundle();
-        if (!bundle) return;
+        const bundle = buildStepsBundle(results, numberFormat);
+        if (!bundle) {
+            reportError('No results to export.');
+            return;
+        }
         downloadFile('matrix-steps.md', bundle.md, 'text/markdown');
         downloadFile('matrix-steps.tex', bundle.texDoc, 'text/plain');
     };
 
     const exportStepsLatexFile = () => {
-        const bundle = buildStepsBundle();
-        if (!bundle) return;
+        const bundle = buildStepsBundle(results, numberFormat);
+        if (!bundle) {
+            reportError('No results to export.');
+            return;
+        }
         downloadFile('matrix-steps.tex', bundle.texDoc, 'text/plain');
     };
 
     const copyStepsLatex = async () => {
-        const bundle = buildStepsBundle();
-        if (!bundle) return;
+        const bundle = buildStepsBundle(results, numberFormat);
+        if (!bundle) {
+            reportError('No results to export.');
+            return;
+        }
         await navigator.clipboard.writeText(bundle.latexBlock);
     };
 
@@ -2801,6 +2832,27 @@ const App: React.FC = () => {
                 <div className="aurora-layer layer-3" />
             </div>
             <div className="w-full max-w-7xl relative z-10">
+                {toasts.length > 0 && (
+                    <div className="fixed top-5 right-5 z-50 flex flex-col gap-2">
+                        {toasts.map(toast => (
+                            <div key={toast.id} className={`glass-panel rounded-xl px-4 py-3 text-sm ${toast.type === 'error' ? 'text-red-700 border border-red-300/60' : 'text-ink'}`}>
+                                {toast.message}
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {healthError && (
+                    <div className="mb-6 no-print">
+                        <div className="glass-panel rounded-2xl px-5 py-4 border border-red-300/60 text-sm">
+                            <div className="font-semibold text-red-700">Startup check failed</div>
+                            <div className="text-secondary mt-1">{healthError}</div>
+                            <div className="flex flex-wrap gap-2 mt-3">
+                                <button onClick={copyDiagnostics} className="px-3 py-2 rounded-lg glass-btn text-sm">Copy diagnostics</button>
+                                <button onClick={() => window.location.reload()} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Reload</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <header className="header-panel text-center mb-8 relative no-print glass-panel rounded-3xl px-6 py-6">
                     <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold aurora-title">Matrix Master</h1>
                     <p className="sm:text-lg text-secondary mt-2">A Comprehensive Linear Algebra Calculator</p>
@@ -3047,16 +3099,16 @@ const App: React.FC = () => {
                             {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                         </select>
                         <div className="flex gap-2">
-                            <button onClick={() => { try { exportMatrixAsCsv(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export CSV</button>
-                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export LaTeX</button>
-                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy LaTeX</button>
+                            <button onClick={() => { try { exportMatrixAsCsv(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export CSV</button>
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy LaTeX</button>
                         </div>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-secondary">Export Steps</h3>
                         </div>
-                        <button onClick={exportStepsBundle} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Export Markdown + LaTeX</button>
+                        <button onClick={() => { try { exportStepsBundle(); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Export Markdown + LaTeX</button>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -3073,7 +3125,7 @@ const App: React.FC = () => {
                                 <option value="json">JSON</option>
                             </select>
                         </div>
-                        <button onClick={async () => { try { await copyMatrixToClipboard(); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Copy</button>
+                        <button onClick={async () => { try { await copyMatrixToClipboard(); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Copy</button>
                     </div>
 
                     <div className="space-y-2">
@@ -3082,16 +3134,16 @@ const App: React.FC = () => {
                             <InfoButton infoKey="exportImport" />
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => exportStateAsJson(false)} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
-                            <button onClick={() => exportStateAsJson(true)} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
+                            <button onClick={() => { try { exportStateAsJson(false); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
+                            <button onClick={() => { try { exportStateAsJson(true); } catch (e) { reportError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Share Matrix LaTeX</button>
-                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Share Matrix LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={exportStepsLatexFile} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
-                            <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
+                            <button onClick={() => { try { exportStepsLatexFile(); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
+                            <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
                         </div>
                     </div>
 
@@ -3112,8 +3164,8 @@ const App: React.FC = () => {
                 <div className="space-y-4">
                     <p className="text-sm text-secondary">Share files and LaTeX exports from the current workspace.</p>
                     <div className="flex gap-2">
-                        <button onClick={() => { try { exportStateAsJson(true); setShareOpen(false); setShareButtonText('Downloaded!'); setTimeout(() => setShareButtonText('Share File'), 2000); } catch (e) { setError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
-                        <button onClick={() => { try { exportStateAsJson(false); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
+                        <button onClick={() => { try { exportStateAsJson(true); setShareOpen(false); setShareButtonText('Downloaded!'); setTimeout(() => setShareButtonText('Share File'), 2000); } catch (e) { reportError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
+                        <button onClick={() => { try { exportStateAsJson(false); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
                     </div>
                     <div className="space-y-2">
                         <label className="text-sm text-secondary">Matrix Target</label>
@@ -3121,13 +3173,13 @@ const App: React.FC = () => {
                             {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
                         </select>
                         <div className="flex gap-2">
-                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Matrix LaTeX</button>
-                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Matrix LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
                         </div>
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={exportStepsLatexFile} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
-                        <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
+                        <button onClick={() => { try { exportStepsLatexFile(); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
+                        <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { reportError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
                     </div>
                 </div>
             </Modal>
@@ -3881,6 +3933,12 @@ const App: React.FC = () => {
                             <span>Update Status</span>
                             <span className="text-ink">{formatUpdateStatus(updateStatus)}</span>
                         </div>
+                        {lastUpdateCheck && (
+                            <div className="flex items-center justify-between text-sm text-secondary">
+                                <span>Last Checked</span>
+                                <span className="text-ink">{new Date(lastUpdateCheck).toLocaleString()}</span>
+                            </div>
+                        )}
                         {updateStatus.state === 'downloading' && typeof updateStatus.percent === 'number' && (
                             <div className="h-2 rounded-full bg-[var(--glass-border)] overflow-hidden">
                                 <div className="h-full bg-[var(--accent-1)]" style={{ width: `${Math.max(2, Math.min(100, updateStatus.percent))}%` }} />
@@ -3896,6 +3954,18 @@ const App: React.FC = () => {
                             )}
                         </div>
                     </div>
+                    {isDesktop && (
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm text-secondary">
+                                <span>Diagnostics</span>
+                                <span className="text-ink">{diagnostics.length} entries</span>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={copyDiagnostics} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm" disabled={diagnostics.length === 0}>Copy Diagnostics</button>
+                                <button onClick={clearDiagnostics} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm" disabled={diagnostics.length === 0}>Clear</button>
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <div className="flex items-center gap-2">
                             <label className="font-medium text-secondary">Tutor Mode</label>

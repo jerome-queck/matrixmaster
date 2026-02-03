@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, session } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import fs from 'fs';
 import path from 'path';
 
 const isDev = process.env.ELECTRON_DEV === '1' || !app.isPackaged;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
 
 let mainWindow: BrowserWindow | null = null;
+let lastCheckedAt: string | null = null;
 
 const createWindow = () => {
   const preloadPath = app.isPackaged
@@ -34,12 +36,18 @@ const createWindow = () => {
 
   win.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.error('did-fail-load', { code, desc, url });
+    win.webContents.send('health-status', { status: 'error', message: `Failed to load ${url}: ${desc} (${code})` });
     win.webContents.openDevTools({ mode: 'detach' });
   });
 
   win.webContents.on('render-process-gone', (_event, details) => {
     console.error('render-process-gone', details);
+    win.webContents.send('health-status', { status: 'error', message: `Renderer crashed: ${details.reason}` });
     win.webContents.openDevTools({ mode: 'detach' });
+  });
+
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.send('health-status', { status: 'ok' });
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -100,7 +108,8 @@ const configureAutoUpdates = () => {
   if (isDev) return;
 
   autoUpdater.on('checking-for-update', () => {
-    sendUpdateStatus({ state: 'checking' });
+    lastCheckedAt = new Date().toISOString();
+    sendUpdateStatus({ state: 'checking', lastCheckedAt });
   });
 
   autoUpdater.on('update-available', (info) => {
@@ -113,7 +122,7 @@ const configureAutoUpdates = () => {
   });
 
   autoUpdater.on('update-not-available', () => {
-    sendUpdateStatus({ state: 'up-to-date' });
+    sendUpdateStatus({ state: 'up-to-date', lastCheckedAt });
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -150,6 +159,16 @@ const registerIpc = () => {
   ipcMain.handle('update-check', () => autoUpdater.checkForUpdates());
   ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
   ipcMain.handle('update-install', () => autoUpdater.quitAndInstall());
+  ipcMain.handle('health-check', () => {
+    const appRoot = app.getAppPath();
+    const indexPath = path.join(appRoot, 'dist', 'index.html');
+    return {
+      isPackaged: app.isPackaged,
+      appPath: appRoot,
+      indexPath,
+      indexExists: fs.existsSync(indexPath),
+    };
+  });
 };
 
 app.whenReady().then(() => {
