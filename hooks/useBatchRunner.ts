@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { AnalysisMode, AnyResult, MatrixWorkerRequest, SavedMatrix, ValidMatrix } from '../types';
 
 interface UseBatchRunnerArgs {
@@ -20,6 +20,7 @@ export const useBatchRunner = ({
     runWorkerRequest,
     setError
 }: UseBatchRunnerArgs) => {
+    const runIdRef = useRef(0);
     const [batchMode, setBatchMode] = useState<'analysis' | 'expression'>('analysis');
     const [batchExpression, setBatchExpression] = useState('A');
     const [batchSelectedIds, setBatchSelectedIds] = useState<string[]>([]);
@@ -27,6 +28,7 @@ export const useBatchRunner = ({
     const [batchRunning, setBatchRunning] = useState(false);
 
     const handleRunBatch = useCallback(async () => {
+        const runId = ++runIdRef.current;
         setBatchRunning(true);
         setError(null);
         const selected = library.filter(item => batchSelectedIds.includes(item.id));
@@ -68,23 +70,33 @@ export const useBatchRunner = ({
         }
 
         try {
-            const payload = {
-                mode: batchMode,
-                expression: batchExpression,
-                analysisMode,
-                analysisOptions,
-                items: validItems
-            } as MatrixWorkerRequest['payload'];
-            const workerResult = await runWorkerRequest('batch', payload, 'batch');
-            if (Array.isArray(workerResult)) {
-                workerResult.forEach(item => resultMap.set(item.id, item));
+            const chunkSize = 10;
+            for (let i = 0; i < validItems.length; i += chunkSize) {
+                if (runIdRef.current !== runId) return;
+                const chunk = validItems.slice(i, i + chunkSize);
+                const payload = {
+                    mode: batchMode,
+                    expression: batchExpression,
+                    analysisMode,
+                    analysisOptions,
+                    items: chunk
+                } as MatrixWorkerRequest['payload'];
+                const workerResult = await runWorkerRequest('batch', payload);
+                if (Array.isArray(workerResult)) {
+                    workerResult.forEach(item => resultMap.set(item.id, item));
+                }
             }
+            if (runIdRef.current !== runId) return;
             const results = order.map(id => resultMap.get(id) || { id, name: nameMap.get(id) || '', error: 'Missing batch result.' });
             setBatchResults(results);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Batch run failed.');
+            if (runIdRef.current === runId) {
+                setError(e instanceof Error ? e.message : 'Batch run failed.');
+            }
         } finally {
-            setBatchRunning(false);
+            if (runIdRef.current === runId) {
+                setBatchRunning(false);
+            }
         }
     }, [analysisMode, analysisOptions, batchExpression, batchMode, batchSelectedIds, library, parseSavedMatrixToValid, runWorkerRequest, setError, extractMatrixNames]);
 

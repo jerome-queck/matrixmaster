@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MatrixWorkerRequest, MatrixWorkerResponse } from '../types';
+import { createAsyncDeduper } from '../services/asyncDeduper';
+import { hashWorkerRequest } from '../services/hash';
 
 export const useMatrixWorker = () => {
     const workerRef = useRef<Worker | null>(null);
     const workerRequestsRef = useRef(
-        new Map<string, { resolve: (value: MatrixWorkerResponse['result']) => void; reject: (error: Error) => void; canceled?: boolean; group?: string }>()
+        new Map<string, { resolve: (value: MatrixWorkerResponse['result']) => void; reject: (error: Error) => void; canceled?: boolean; group?: string; hash?: string }>()
     );
-    const activeGroupRef = useRef(new Map<string, string>());
+    const activeGroupRef = useRef(new Map<string, { id: string; hash: string }>());
+    const inflightDeduperRef = useRef(createAsyncDeduper());
     const workerIdRef = useRef(0);
 
     useEffect(() => {
@@ -18,8 +21,8 @@ export const useMatrixWorker = () => {
             workerRequestsRef.current.delete(message.id);
             if (pending.canceled) return;
             if (pending.group) {
-                const currentId = activeGroupRef.current.get(pending.group);
-                if (currentId && currentId !== message.id) return;
+                const current = activeGroupRef.current.get(pending.group);
+                if (current && current.id !== message.id) return;
             }
             if (message.ok) {
                 pending.resolve(message.result);
@@ -40,27 +43,37 @@ export const useMatrixWorker = () => {
     }, []);
 
     const runWorkerRequest = useCallback((type: MatrixWorkerRequest['type'], payload: MatrixWorkerRequest['payload'], group?: string) => {
-        return new Promise<MatrixWorkerResponse['result']>((resolve, reject) => {
+        const requestHash = hashWorkerRequest(type, payload);
+        const dedupeKey = `${type}:${requestHash}`;
+        const shouldDedup = type !== 'details';
+
+        const createRequest = () => new Promise<MatrixWorkerResponse['result']>((resolve, reject) => {
             if (!workerRef.current) {
                 reject(new Error('Worker unavailable.'));
                 return;
             }
             const id = `worker_${Date.now()}_${workerIdRef.current++}`;
             if (group) {
-                const previousId = activeGroupRef.current.get(group);
-                if (previousId) {
-                    const previous = workerRequestsRef.current.get(previousId);
-                    if (previous && !previous.canceled) {
-                        previous.canceled = true;
-                        previous.reject(new Error('Request superseded.'));
+                const previous = activeGroupRef.current.get(group);
+                if (previous && previous.hash !== requestHash) {
+                    const pending = workerRequestsRef.current.get(previous.id);
+                    if (pending && !pending.canceled) {
+                        pending.canceled = true;
+                        pending.reject(new Error('Request superseded.'));
                     }
                 }
-                activeGroupRef.current.set(group, id);
+                activeGroupRef.current.set(group, { id, hash: requestHash });
             }
-            workerRequestsRef.current.set(id, { resolve, reject, group });
-            const message: MatrixWorkerRequest = { id, type, payload };
+            workerRequestsRef.current.set(id, { resolve, reject, group, hash: requestHash });
+            const message: MatrixWorkerRequest = { id, type, payload, requestHash };
             workerRef.current.postMessage(message);
         });
+
+        if (!shouldDedup) {
+            return createRequest();
+        }
+
+        return inflightDeduperRef.current.getOrCreate(dedupeKey, createRequest);
     }, []);
 
     return { runWorkerRequest };

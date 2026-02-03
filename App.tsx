@@ -12,6 +12,7 @@ import { buildStepsBundle } from './services/exportService';
 import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
+import { useDelayedFlag } from './hooks/useDelayedFlag';
 
 type AllResultTypes = AnyResult;
 
@@ -261,6 +262,7 @@ const App: React.FC = () => {
     );
 
     const { runWorkerRequest } = useMatrixWorker();
+    const showComputeIndicator = useDelayedFlag(isLoading, 200);
 
     // System Solver State
     const [rows, setRows] = useState<number | ''>(3);
@@ -2822,7 +2824,7 @@ const App: React.FC = () => {
             ) : null}
 
             {error && <div className="mt-6 p-4 bg-red-400/20 border border-red-500/30 text-red-800 rounded-lg"><p className="font-bold">Error:</p><p>{error}</p></div>}
-            {isLoading && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
+            {showComputeIndicator && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
         </div>
     );
 

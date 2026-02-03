@@ -224,6 +224,7 @@ export type WorkerRequestType =
 export interface MatrixWorkerRequest {
     id: string;
     type: WorkerRequestType;
+    requestHash?: string;
     payload:
         | { matrix: ValidMatrix; systemType: SystemType }
         | { matrix: ValidMatrix; analysisMode: AnalysisMode; analysisOptions: { computeLU: boolean; computeQR: boolean; computeSVD: boolean; computeEigen: boolean } }
