@@ -33,7 +33,7 @@ const renderAssumptions = (assumptions: VariableAssumption[]) => (
     <ul className="report-list">
         {assumptions.map((a, i) => (
             <li key={`${a.variable}-${i}`}>
-                <LatexRenderer latex={`\text{${a.variable}}\ \text{is ${a.constraint}}`} displayMode={false} />
+                <LatexRenderer latex={`\\text{${a.variable}}\\ \\text{is ${a.constraint}}`} displayMode={false} />
             </li>
         ))}
     </ul>
@@ -214,7 +214,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
                 {appMode === 'determinantOfOperation' && (
                     <Section title="Determinant">
-                        <LatexBlock latex={`\det = ${formatSymbolicFractionToLatex((results as DeterminantOfOperationResult).determinant.value)}`} />
+                        <LatexBlock latex={`\\det = ${formatSymbolicFractionToLatex((results as DeterminantOfOperationResult).determinant.value)}`} />
                     </Section>
                 )}
 
@@ -226,7 +226,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
                 {appMode === 'systemSolver' && (results as CalculationResult).determinant && (
                     <Section title="Determinant">
-                        <LatexBlock latex={`\det(A) = ${formatSymbolicFractionToLatex((results as CalculationResult).determinant!.value)}`} />
+                        <LatexBlock latex={`\\det(A) = ${formatSymbolicFractionToLatex((results as CalculationResult).determinant!.value)}`} />
                     </Section>
                 )}
 
@@ -241,13 +241,13 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 {appMode === 'systemSolver' && (
                     <Section title="Row/Column/Null Space">
                         {(results as CalculationResult).rowSpaceBasis && (
-                            <LatexBlock latex={`Row(A) = \text{span}\{${formatVectorsToLatex((results as CalculationResult).rowSpaceBasis!)}\}`} />
+                            <LatexBlock latex={`Row(A) = \\text{span}\\{${formatVectorsToLatex((results as CalculationResult).rowSpaceBasis!)}\\}`} />
                         )}
                         {(results as CalculationResult).colSpaceBasis && (
-                            <LatexBlock latex={`Col(A) = \text{span}\{${formatVectorsToLatex((results as CalculationResult).colSpaceBasis!)}\}`} />
+                            <LatexBlock latex={`Col(A) = \\text{span}\\{${formatVectorsToLatex((results as CalculationResult).colSpaceBasis!)}\\}`} />
                         )}
                         {(results as CalculationResult).nullSpace && (
-                            <LatexBlock latex={`Nul(A) = \text{span}\{${formatVectorsToLatex((results as CalculationResult).nullSpace!.basis)}\}`} />
+                            <LatexBlock latex={`Nul(A) = \\text{span}\\{${formatVectorsToLatex((results as CalculationResult).nullSpace!.basis)}\\}`} />
                         )}
                     </Section>
                 )}

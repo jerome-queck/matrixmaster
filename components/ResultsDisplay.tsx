@@ -141,23 +141,27 @@ const VirtualizedList: React.FC<{
 
 const ResultSection: React.FC<{ title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode; isNested?: boolean; onExplain?: (topic: string) => void }> = ({ title, isOpen, onToggle, children, isNested, onExplain }) => (
     <div className={`${isNested ? 'glass-panel rounded-2xl' : 'glass-card rounded-2xl'}`}>
-        <button onClick={onToggle} className={`w-full p-4 text-left flex justify-between items-center transition-colors ${isNested ? 'hover:bg-white/10 rounded-2xl' : 'hover:bg-white/10'} ${isOpen ? (isNested ? '' : 'rounded-t-2xl') : 'rounded-2xl'}`}>
-            <div className="min-w-0 flex-1 flex items-center gap-2">
+        <div className={`w-full p-4 flex items-center gap-2 transition-colors ${isNested ? 'hover:bg-white/10 rounded-2xl' : 'hover:bg-white/10'} ${isOpen ? (isNested ? '' : 'rounded-t-2xl') : 'rounded-2xl'}`}>
+            <button
+                onClick={onToggle}
+                aria-expanded={isOpen}
+                className="min-w-0 flex-1 flex items-center justify-between text-left"
+            >
                 <h2 className="text-xl font-semibold break-words w-full text-left pr-4 text-ink">{title}</h2>
-                {onExplain && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onExplain(title); }}
-                        className="p-1 rounded-full text-secondary hover:bg-white/10 transition-colors flex-shrink-0"
-                        aria-label={`Explain ${title}`}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                )}
-            </div>
-            <svg className={`w-6 h-6 transform transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-        </button>
+                <svg className={`w-6 h-6 transform transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {onExplain && (
+                <button
+                    onClick={() => onExplain(title)}
+                    className="p-1 rounded-full text-secondary hover:bg-white/10 transition-colors flex-shrink-0"
+                    aria-label={`Explain ${title}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            )}
+        </div>
         <div className={`accordion-content ${isOpen ? 'open' : ''}`}>
             <div className="min-w-0">
                 <div className={`p-4 ${isNested ? '' : 'border-t border-white/10'}`}>

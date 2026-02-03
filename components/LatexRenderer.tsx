@@ -71,7 +71,7 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({
             const message = err instanceof Error ? err.message : 'Failed to render LaTeX.';
             return { html: '', error: message };
         }
-    }, [latex, displayMode]);
+    }, [latex, displayMode, lazy, isVisible]);
 
     useEffect(() => {
         if (!lazy || !containerRef.current) return;
