@@ -29,6 +29,12 @@ const DocumentationView: React.FC<DocumentationViewProps> = ({ className }) => {
                     <li>Matrix Input and Data Types</li>
                     <li>Core Modes</li>
                     <li>Analysis and Decompositions</li>
+                    <li>Advanced Analysis Tools</li>
+                    <li>Symbolic Simplifier and Constraints</li>
+                    <li>Guided Practice and Step Compare</li>
+                    <li>Block Matrix Builder</li>
+                    <li>Iterative Solvers and Preconditioning</li>
+                    <li>Plugins and Project Versions</li>
                     <li>History, Snapshots, and Caching</li>
                     <li>Library and Presets</li>
                     <li>Sparse Matrix Tools</li>
@@ -60,6 +66,7 @@ const DocumentationView: React.FC<DocumentationViewProps> = ({ className }) => {
                         <li>Choose a mode: System Solver, Matrix Operations, Determinant of Operation, or Analysis.</li>
                         <li>Enter or load matrices using the matrix grid.</li>
                         <li>Run Calculate or Analyze to generate results.</li>
+                        <li>Press Cmd/Ctrl + K to open the Command Palette for quick actions.</li>
                         <li>Use History to save snapshots or Export to share results as files.</li>
                         <li>Print a PDF report from the Report dialog.</li>
                     </ol>
@@ -137,6 +144,44 @@ const DocumentationView: React.FC<DocumentationViewProps> = ({ className }) => {
                         <strong>Precision control:</strong> set digits, fixed or scientific format, or fractionize
                         output for reports and exports in Settings.
                     </div>
+                </DocSection>
+                <DocSection id="advanced" title="Advanced Analysis Tools">
+                    <ul>
+                        <li><strong>Sensitivity & condition number:</strong> Numeric mode displays condition number and a perturbation slider.</li>
+                        <li><strong>Floating-point error:</strong> Compare rounded vs full-precision outputs.</li>
+                        <li><strong>Matrix functions:</strong> Compute exp(A), log(A), and sqrt(A) for numeric matrices.</li>
+                        <li><strong>Jordan form:</strong> Inspect eigenvalues and an approximate Jordan decomposition.</li>
+                    </ul>
+                </DocSection>
+                <DocSection id="symbolic" title="Symbolic Simplifier and Constraints">
+                    <ul>
+                        <li>Use the Symbolic Simplifier tool to see rule-by-rule simplification traces.</li>
+                        <li>Variable assumptions are checked against numeric values and flagged when violated.</li>
+                    </ul>
+                </DocSection>
+                <DocSection id="practice" title="Guided Practice and Step Compare">
+                    <ul>
+                        <li>Guided Practice generates random systems and checks your answers.</li>
+                        <li>Step Compare lets you upload a JSON step list and compare against solver steps.</li>
+                    </ul>
+                </DocSection>
+                <DocSection id="block-matrix" title="Block Matrix Builder">
+                    <ul>
+                        <li>Combine four matrices into a 2×2 block matrix.</li>
+                        <li>Apply to solver, analysis, or any named matrix target.</li>
+                    </ul>
+                </DocSection>
+                <DocSection id="iterative" title="Iterative Solvers and Preconditioning">
+                    <ul>
+                        <li>Run Jacobi, Gauss-Seidel, CG, and GMRES solvers.</li>
+                        <li>Optional Jacobi and ILU0 preconditioning improves convergence.</li>
+                    </ul>
+                </DocSection>
+                <DocSection id="plugins" title="Plugins and Project Versions">
+                    <ul>
+                        <li>Import offline plugin JSON to add command palette actions.</li>
+                        <li>Save and restore named project versions locally per profile.</li>
+                    </ul>
                 </DocSection>
 
                 <DocSection id="history" title="History, Snapshots, and Caching">

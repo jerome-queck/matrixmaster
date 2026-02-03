@@ -17,8 +17,15 @@ export interface SymbolicFraction {
     denominator: Polynomial;
 }
 
+export interface SimplifyTraceStep {
+  rule: string;
+  before: SymbolicFraction;
+  after: SymbolicFraction;
+  note?: string;
+}
+
 export type NumericMatrix = number[][];
-export type NumberFormatMode = 'fixed' | 'scientific' | 'fraction';
+export type NumberFormatMode = 'fixed' | 'scientific' | 'fraction' | 'auto';
 
 export interface NumberFormatOptions {
     digits?: number;
@@ -204,6 +211,34 @@ export interface NumericMatrixAnalysisResult {
 
 export type MatrixAnalysisResult = ExactMatrixAnalysisResult | NumericMatrixAnalysisResult;
 export type AnyResult = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
+
+// --- Worker Types ---
+export type WorkerRequestType =
+    | 'systemSolver'
+    | 'analysis'
+    | 'matrixOperations'
+    | 'determinantOfOperation'
+    | 'batch'
+    | 'details';
+
+export interface MatrixWorkerRequest {
+    id: string;
+    type: WorkerRequestType;
+    payload:
+        | { matrix: ValidMatrix; systemType: SystemType }
+        | { matrix: ValidMatrix; analysisMode: AnalysisMode; analysisOptions: { computeLU: boolean; computeQR: boolean; computeSVD: boolean; computeEigen: boolean } }
+        | { expression: string; matrices: [string, ValidMatrix][] }
+        | { mode: 'analysis'; analysisMode: AnalysisMode; analysisOptions: { computeLU: boolean; computeQR: boolean; computeSVD: boolean; computeEigen: boolean }; items: { id: string; name: string; matrix: ValidMatrix }[] }
+        | { mode: 'expression'; expression: string; analysisMode: AnalysisMode; analysisOptions: { computeLU: boolean; computeQR: boolean; computeSVD: boolean; computeEigen: boolean }; items: { id: string; name: string; matrix: ValidMatrix }[] }
+        | { section: string; appMode: AppMode; results: AnyResult; originalInputs: any };
+}
+
+export interface MatrixWorkerResponse {
+    id: string;
+    ok: boolean;
+    result?: AnyResult | { id: string; name: string; result?: AnyResult; error?: string }[];
+    error?: string;
+}
 
 // --- Shareable State Types ---
 type SerializableMatrix = string;

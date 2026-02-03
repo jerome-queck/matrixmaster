@@ -1,4 +1,4 @@
-import type { Fraction, ValidMatrix, RowOperationStep, CalculationResult, DeterminantResult, DeterminantRowOpStep, SystemType, NullSpaceResult, SolutionResult, Term, Polynomial, SymbolicFraction, InverseResult, AdjointMethodResult, CofactorStep, CramersRuleResult, MatrixMultiplicationDetail, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, OperationNode, Operand, NumberFormatOptions } from '../types';
+import type { Fraction, ValidMatrix, RowOperationStep, CalculationResult, DeterminantResult, DeterminantRowOpStep, SystemType, NullSpaceResult, SolutionResult, Term, Polynomial, SymbolicFraction, InverseResult, AdjointMethodResult, CofactorStep, CramersRuleResult, MatrixMultiplicationDetail, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, OperationNode, Operand, NumberFormatOptions, SimplifyTraceStep } from '../types';
 
 // #region Basic Fraction and Integer Helpers
 const gcd = (a: number, b: number): number => {
@@ -205,19 +205,84 @@ const simplifySF = (sf: SymbolicFraction): SymbolicFraction => {
     return { numerator: sNum, denominator: sDen };
 }
 
-const addSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
+export const simplifySymbolicFractionWithTrace = (sf: SymbolicFraction): { result: SymbolicFraction; steps: SimplifyTraceStep[] } => {
+    const steps: SimplifyTraceStep[] = [];
+    const clone = (value: SymbolicFraction): SymbolicFraction => ({
+        numerator: value.numerator.map(t => ({ coefficient: { ...t.coefficient }, variables: { ...t.variables } })),
+        denominator: value.denominator.map(t => ({ coefficient: { ...t.coefficient }, variables: { ...t.variables } }))
+    });
+
+    let current = clone(sf);
+    const normalized = {
+        numerator: simplifyPoly(current.numerator),
+        denominator: simplifyPoly(current.denominator)
+    };
+    steps.push({ rule: 'Normalize Polynomials', before: clone(current), after: clone(normalized) });
+    current = normalized;
+
+    if (isZeroPoly(current.numerator)) {
+        const zeroed = ZERO_SF;
+        steps.push({ rule: 'Zero Numerator', before: clone(current), after: clone(zeroed), note: 'Any fraction with zero numerator simplifies to 0.' });
+        return { result: zeroed, steps };
+    }
+    if (isZeroPoly(current.denominator)) {
+        throw new Error('Denominator polynomial cannot be zero.');
+    }
+    if (arePolyEqual(current.numerator, current.denominator)) {
+        const one = ONE_SF;
+        steps.push({ rule: 'Cancel Equal Polynomials', before: clone(current), after: clone(one), note: 'Numerator equals denominator.' });
+        return { result: one, steps };
+    }
+
+    const { gcdMonomial: numGcd, remainingPoly: numRem } = factorOutGcdMonomial(current.numerator);
+    const { gcdMonomial: denGcd, remainingPoly: denRem } = factorOutGcdMonomial(current.denominator);
+
+    const commonCoeff = { numerator: gcd(numGcd.coefficient.numerator, denGcd.coefficient.numerator), denominator: 1 };
+    const commonVars: Record<string, number> = {};
+    const allVars = new Set([...Object.keys(numGcd.variables), ...Object.keys(denGcd.variables)]);
+    allVars.forEach(v => {
+        const commonPower = Math.min(numGcd.variables[v] || 0, denGcd.variables[v] || 0);
+        if (commonPower > 0) commonVars[v] = commonPower;
+    });
+    const commonFactor = { coefficient: commonCoeff, variables: commonVars };
+
+    const newNumGcd = divideTerm(numGcd, commonFactor);
+    const newDenGcd = divideTerm(denGcd, commonFactor);
+
+    const reduced = {
+        numerator: multiplyPoly([newNumGcd], numRem),
+        denominator: multiplyPoly([newDenGcd], denRem)
+    };
+    steps.push({ rule: 'Cancel Common Factors', before: clone(current), after: clone(reduced) });
+    current = reduced;
+
+    if (current.denominator.length > 0 && current.denominator[0].coefficient.numerator < 0) {
+        const signAdjusted = {
+            numerator: negatePoly(current.numerator),
+            denominator: negatePoly(current.denominator)
+        };
+        steps.push({ rule: 'Normalize Sign', before: clone(current), after: clone(signAdjusted), note: 'Move negative sign to numerator.' });
+        current = signAdjusted;
+    }
+
+    const final = simplifySF(current);
+    steps.push({ rule: 'Final Simplify', before: clone(current), after: clone(final) });
+    return { result: final, steps };
+};
+
+export const addSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
     numerator: addPoly(multiplyPoly(a.numerator, b.denominator), multiplyPoly(b.numerator, a.denominator)),
     denominator: multiplyPoly(a.denominator, b.denominator)
 });
-const subtractSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
+export const subtractSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
     numerator: subtractPoly(multiplyPoly(a.numerator, b.denominator), multiplyPoly(b.numerator, a.denominator)),
     denominator: multiplyPoly(a.denominator, b.denominator)
 });
-const multiplySF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
+export const multiplySF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => simplifySF({
     numerator: multiplyPoly(a.numerator, b.numerator),
     denominator: multiplyPoly(a.denominator, b.denominator)
 });
-const divideSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => {
+export const divideSF = (a: SymbolicFraction, b: SymbolicFraction): SymbolicFraction => {
     if(isZeroPoly(b.numerator)) throw new Error("Symbolic division by zero polynomial.");
     return simplifySF({
         numerator: multiplyPoly(a.numerator, b.denominator),
@@ -1952,6 +2017,16 @@ const formatNumber = (value: number, options?: NumberFormatOptions, latex = true
     const { digits, mode, fractionMaxDenominator } = { ...DEFAULT_FORMAT_OPTIONS, ...(options || {}) };
     if (!Number.isFinite(value)) return latex ? '\\text{NaN}' : 'NaN';
 
+    if (mode === 'auto') {
+        const absValue = Math.abs(value);
+        let autoDigits = Math.max(2, Math.min(6, digits));
+        if (absValue >= 1000) autoDigits = Math.min(autoDigits, 4);
+        if (absValue !== 0 && (absValue >= 1e6 || absValue < 1e-4)) {
+            return formatNumber(value, { ...options, mode: 'scientific', digits: autoDigits }, latex);
+        }
+        return formatNumber(value, { ...options, mode: 'fixed', digits: autoDigits }, latex);
+    }
+
     if (mode === 'fraction') {
         const { numerator, denominator } = formatFraction(value, fractionMaxDenominator);
         if (denominator === 1) return String(numerator);
@@ -2257,6 +2332,200 @@ export const numericSVD = (matrix: NumericMatrix, maxIterations = 120, eps = EPS
 
     const Vt = transposeNumeric(V);
     return { U, S, Vt, singularValues };
+};
+
+export const numericIdentity = (n: number): NumericMatrix => createIdentityMatrix(n);
+
+export const numericMatrixInverse = (matrix: NumericMatrix, eps = EPSILON): NumericMatrix => {
+    const n = matrix.length;
+    const m = cloneNumericMatrix(matrix);
+    const inv = createIdentityMatrix(n);
+
+    for (let col = 0; col < n; col++) {
+        let pivotRow = col;
+        let pivotVal = Math.abs(m[col][col]);
+        for (let r = col + 1; r < n; r++) {
+            const val = Math.abs(m[r][col]);
+            if (val > pivotVal) {
+                pivotVal = val;
+                pivotRow = r;
+            }
+        }
+        if (pivotVal <= eps) throw new Error('Matrix is singular or ill-conditioned.');
+        if (pivotRow !== col) {
+            [m[col], m[pivotRow]] = [m[pivotRow], m[col]];
+            [inv[col], inv[pivotRow]] = [inv[pivotRow], inv[col]];
+        }
+        const pivot = m[col][col];
+        for (let c = 0; c < n; c++) {
+            m[col][c] /= pivot;
+            inv[col][c] /= pivot;
+        }
+        for (let r = 0; r < n; r++) {
+            if (r === col) continue;
+            const factor = m[r][col];
+            for (let c = 0; c < n; c++) {
+                m[r][c] -= factor * m[col][c];
+                inv[r][c] -= factor * inv[col][c];
+            }
+        }
+    }
+    return inv;
+};
+
+export const numericConditionNumber = (matrix: NumericMatrix): number => {
+    const svd = numericSVD(matrix);
+    const max = Math.max(...svd.singularValues);
+    const min = Math.min(...svd.singularValues.filter(v => v > EPSILON));
+    if (!Number.isFinite(max) || !Number.isFinite(min) || min <= EPSILON) return Infinity;
+    return max / min;
+};
+
+export const numericMatrixFunction = (matrix: NumericMatrix, fn: (value: number) => number): NumericMatrix => {
+    const eig = numericEigen(matrix);
+    if (!eig.vectors) {
+        throw new Error('Eigenvectors not available for this matrix.');
+    }
+    const n = matrix.length;
+    const V = eig.vectors;
+    const Vinv = numericMatrixInverse(V);
+    const D = createZeroMatrix(n, n);
+    for (let i = 0; i < n; i++) D[i][i] = fn(eig.values[i]);
+    return multiplyNumeric(multiplyNumeric(V, D), Vinv);
+};
+
+export const numericMatrixExp = (matrix: NumericMatrix): NumericMatrix => {
+    return numericMatrixFunction(matrix, (v) => Math.exp(v));
+};
+
+export const numericMatrixSqrt = (matrix: NumericMatrix): NumericMatrix => {
+    return numericMatrixFunction(matrix, (v) => {
+        if (v < 0) throw new Error('Matrix has negative eigenvalues; sqrt undefined.');
+        return Math.sqrt(v);
+    });
+};
+
+export const numericMatrixLog = (matrix: NumericMatrix): NumericMatrix => {
+    return numericMatrixFunction(matrix, (v) => {
+        if (v <= 0) throw new Error('Matrix has non-positive eigenvalues; log undefined.');
+        return Math.log(v);
+    });
+};
+
+export const numericJordanForm = (matrix: NumericMatrix): { J: NumericMatrix; P: NumericMatrix; eigenvalues: number[]; warning?: string } => {
+    const eig = numericEigen(matrix);
+    if (!eig.vectors) {
+        return { J: createIdentityMatrix(matrix.length), P: createIdentityMatrix(matrix.length), eigenvalues: eig.values, warning: 'Eigenvectors unavailable; Jordan form approximated as diagonal.' };
+    }
+    const n = matrix.length;
+    const J = createZeroMatrix(n, n);
+    for (let i = 0; i < n; i++) J[i][i] = eig.values[i];
+    return { J, P: eig.vectors, eigenvalues: eig.values, warning: eig.symmetric ? undefined : 'Non-symmetric matrix; Jordan blocks assumed diagonal.' };
+};
+
+export const numericJacobi = (A: NumericMatrix, b: number[], tol = 1e-8, maxIter = 100): { x: number[]; residuals: number[] } => {
+    const n = A.length;
+    let x = Array(n).fill(0);
+    const residuals: number[] = [];
+    for (let iter = 0; iter < maxIter; iter++) {
+        const next = Array(n).fill(0);
+        for (let i = 0; i < n; i++) {
+            let sum = 0;
+            for (let j = 0; j < n; j++) if (j !== i) sum += A[i][j] * x[j];
+            next[i] = (b[i] - sum) / A[i][i];
+        }
+        x = next;
+        const r = A.map((row, i) => row.reduce((acc, v, j) => acc + v * x[j], 0) - b[i]);
+        const norm = Math.sqrt(r.reduce((acc, v) => acc + v * v, 0));
+        residuals.push(norm);
+        if (norm < tol) break;
+    }
+    return { x, residuals };
+};
+
+export const numericGaussSeidel = (A: NumericMatrix, b: number[], tol = 1e-8, maxIter = 100): { x: number[]; residuals: number[] } => {
+    const n = A.length;
+    const x = Array(n).fill(0);
+    const residuals: number[] = [];
+    for (let iter = 0; iter < maxIter; iter++) {
+        for (let i = 0; i < n; i++) {
+            let sum = 0;
+            for (let j = 0; j < n; j++) if (j !== i) sum += A[i][j] * x[j];
+            x[i] = (b[i] - sum) / A[i][i];
+        }
+        const r = A.map((row, i) => row.reduce((acc, v, j) => acc + v * x[j], 0) - b[i]);
+        const norm = Math.sqrt(r.reduce((acc, v) => acc + v * v, 0));
+        residuals.push(norm);
+        if (norm < tol) break;
+    }
+    return { x: [...x], residuals };
+};
+
+const dotVec = (a: number[], b: number[]) => a.reduce((acc, v, i) => acc + v * b[i], 0);
+
+export const numericConjugateGradient = (A: NumericMatrix, b: number[], tol = 1e-8, maxIter = 200): { x: number[]; residuals: number[] } => {
+    const n = A.length;
+    let x = Array(n).fill(0);
+    let r = b.slice();
+    let p = r.slice();
+    const residuals: number[] = [];
+    let rsold = dotVec(r, r);
+
+    for (let i = 0; i < maxIter; i++) {
+        const Ap = A.map(row => dotVec(row, p));
+        const alpha = rsold / Math.max(dotVec(p, Ap), EPSILON);
+        x = x.map((xi, idx) => xi + alpha * p[idx]);
+        r = r.map((ri, idx) => ri - alpha * Ap[idx]);
+        const rsnew = dotVec(r, r);
+        residuals.push(Math.sqrt(rsnew));
+        if (Math.sqrt(rsnew) < tol) break;
+        p = r.map((ri, idx) => ri + (rsnew / rsold) * p[idx]);
+        rsold = rsnew;
+    }
+    return { x, residuals };
+};
+
+export const numericGMRES = (A: NumericMatrix, b: number[], tol = 1e-8, maxIter = 50): { x: number[]; residuals: number[] } => {
+    const n = A.length;
+    let x = Array(n).fill(0);
+    let r0 = b.slice();
+    const beta = Math.sqrt(dotVec(r0, r0));
+    const v: number[][] = [];
+    v.push(r0.map(val => val / beta));
+    const H: number[][] = Array.from({ length: maxIter + 1 }, () => Array(maxIter).fill(0));
+    const residuals: number[] = [];
+
+    for (let j = 0; j < maxIter; j++) {
+        const w = A.map(row => dotVec(row, v[j]));
+        for (let i = 0; i <= j; i++) {
+            H[i][j] = dotVec(w, v[i]);
+            for (let k = 0; k < n; k++) w[k] -= H[i][j] * v[i][k];
+        }
+        H[j + 1][j] = Math.sqrt(dotVec(w, w));
+        if (H[j + 1][j] > EPSILON) {
+            v.push(w.map(val => val / H[j + 1][j]));
+        }
+
+        const y = Array(j + 1).fill(0);
+        y[0] = beta;
+        // simple least squares via back-substitution on upper H (small j)
+        for (let k = j; k >= 0; k--) {
+            let sum = y[k];
+            for (let i = k + 1; i <= j; i++) {
+                sum -= H[k][i] * y[i];
+            }
+            y[k] = sum / (H[k][k] || EPSILON);
+        }
+        x = Array(n).fill(0);
+        for (let k = 0; k <= j; k++) {
+            for (let i = 0; i < n; i++) x[i] += v[k][i] * y[k];
+        }
+        const r = A.map((row, i) => dotVec(row, x) - b[i]);
+        const norm = Math.sqrt(dotVec(r, r));
+        residuals.push(norm);
+        if (norm < tol) break;
+    }
+    return { x, residuals };
 };
 
 // #endregion

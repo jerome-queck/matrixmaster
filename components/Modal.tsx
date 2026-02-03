@@ -36,14 +36,14 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
             aria-labelledby="modal-title"
         >
             <div 
-                className="modal-panel rounded-2xl shadow-xl w-full max-w-md m-4 p-6 text-gray-800 dark:text-gray-200"
+                className="modal-panel rounded-2xl shadow-xl w-full max-w-md m-4 p-6 text-ink"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex justify-between items-center mb-4">
                     <h2 id="modal-title" className="text-xl font-bold modal-title">{title}</h2>
                     <button 
                         onClick={onClose} 
-                        className="text-gray-500 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors"
+                        className="text-secondary hover:text-ink transition-colors"
                         aria-label="Close modal"
                     >
                         <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -1,8 +1,8 @@
 
 import React from 'react';
-import type { CalculationResult, RowOperationStep, DeterminantRowOpStep, ValidMatrix, SolutionResult, NullSpaceResult, SymbolicFraction, InverseResult, CramersRuleResult, AdjointMethodResult, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, DeterminantResult, MatrixMultiplicationDetail, CofactorStep, SystemType, MatrixAnalysisResult, NumberFormatOptions, VariableAssumption } from '../types';
+import type { CalculationResult, RowOperationStep, DeterminantRowOpStep, ValidMatrix, SolutionResult, NullSpaceResult, SymbolicFraction, InverseResult, CramersRuleResult, AdjointMethodResult, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, DeterminantResult, MatrixMultiplicationDetail, CofactorStep, SystemType, MatrixAnalysisResult, NumberFormatOptions, VariableAssumption, Matrix } from '../types';
 import { LatexRenderer } from './LatexRenderer';
-import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex } from '../services/matrixService';
+import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex, symbolicFractionToNumber, toNumericMatrix, numericConditionNumber, numericTrace, addSF, multiplySF } from '../services/matrixService';
 
 type AllResultTypes = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
 
@@ -35,15 +35,119 @@ const isMatrixOpsResult = (res: AllResultTypes): res is MatrixOperationsResult =
 const isDeterminantOfOpsResult = (res: AllResultTypes): res is DeterminantOfOperationResult => 'operationResult' in res;
 const isAnalysisResult = (res: AllResultTypes): res is MatrixAnalysisResult => 'kind' in res && res.kind === 'analysis';
 
+const SummaryBar: React.FC<{ results: AllResultTypes; numberFormat?: NumberFormatOptions }> = ({ results, numberFormat }) => {
+    const items: { label: string; content: React.ReactNode }[] = [];
+
+    if (isAnalysisResult(results)) {
+        items.push({ label: 'Mode', content: results.mode === 'numeric' ? 'Numeric' : 'Exact' });
+        items.push({ label: 'Rank', content: results.rank });
+        if (results.trace !== undefined) {
+            const traceLatex = typeof results.trace === 'number' ? formatNumberToLatex(results.trace, numberFormat) : formatSymbolicFractionToLatex(results.trace);
+            items.push({ label: 'Trace', content: <LatexRenderer latex={traceLatex} displayMode={false} /> });
+        }
+        if (results.warnings.length > 0) {
+            items.push({ label: 'Warnings', content: results.warnings.length });
+        }
+    } else if (isMatrixOpsResult(results)) {
+        items.push({ label: 'Steps', content: results.steps.length });
+        if (results.conditions.length > 0) items.push({ label: 'Conditions', content: results.conditions.length });
+    } else if (isDeterminantOfOpsResult(results)) {
+        items.push({ label: 'Determinant', content: <LatexRenderer latex={`\\det(A) = ${formatSymbolicFractionToLatex(results.determinant.value)}`} displayMode={false} /> });
+        if (results.conditions.length > 0) items.push({ label: 'Conditions', content: results.conditions.length });
+    } else {
+        const solver = results as CalculationResult;
+        items.push({ label: 'System', content: solver.systemType === 'homogeneous' ? 'Homogeneous' : 'Non-homogeneous' });
+        if (solver.solutionSetRref) {
+            items.push({ label: 'Consistent', content: solver.solutionSetRref.isConsistent ? 'Yes' : 'No' });
+        }
+        if (solver.conditions.length > 0) items.push({ label: 'Assumptions', content: solver.conditions.length });
+    }
+
+    if (items.length === 0) return null;
+
+    return (
+        <div className="sticky top-0 z-10 mb-4">
+            <div className="glass-panel rounded-2xl px-4 py-2 flex flex-wrap gap-3 items-center">
+                <span className="text-xs uppercase tracking-wide text-secondary">Summary</span>
+                {items.map(item => (
+                    <div key={item.label} className="flex items-center gap-2 text-sm text-ink bg-white/40 px-3 py-1 rounded-full">
+                        <span className="text-xs uppercase tracking-wide text-secondary">{item.label}</span>
+                        <span className="font-semibold">{item.content}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const useVirtualWindow = (itemCount: number, estimateHeight: number, overscan = 4) => {
+    const containerRef = React.useRef<HTMLDivElement | null>(null);
+    const [scrollTop, setScrollTop] = React.useState(0);
+    const [viewportHeight, setViewportHeight] = React.useState(0);
+
+    React.useEffect(() => {
+        const node = containerRef.current;
+        if (!node) return;
+        const update = () => setViewportHeight(node.clientHeight);
+        update();
+
+        let resizeObserver: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(update);
+            resizeObserver.observe(node);
+        } else {
+            window.addEventListener('resize', update);
+        }
+
+        return () => {
+            if (resizeObserver) resizeObserver.disconnect();
+            else window.removeEventListener('resize', update);
+        };
+    }, []);
+
+    const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+        setScrollTop(event.currentTarget.scrollTop);
+    };
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / estimateHeight) - overscan);
+    const endIndex = Math.min(itemCount - 1, Math.ceil((scrollTop + viewportHeight) / estimateHeight) + overscan);
+    const topSpacer = startIndex * estimateHeight;
+    const bottomSpacer = Math.max(0, (itemCount - endIndex - 1) * estimateHeight);
+
+    return { containerRef, onScroll, startIndex, endIndex, topSpacer, bottomSpacer };
+};
+
+const VirtualizedList: React.FC<{
+    itemCount: number;
+    estimateHeight: number;
+    maxHeight: number;
+    className?: string;
+    renderItem: (index: number) => React.ReactNode;
+}> = ({ itemCount, estimateHeight, maxHeight, className, renderItem }) => {
+    const { containerRef, onScroll, startIndex, endIndex, topSpacer, bottomSpacer } = useVirtualWindow(itemCount, estimateHeight);
+    const items: React.ReactNode[] = [];
+    for (let i = startIndex; i <= endIndex; i++) {
+        items.push(renderItem(i));
+    }
+
+    return (
+        <div ref={containerRef} onScroll={onScroll} className={className} style={{ maxHeight, overflowY: 'auto' }}>
+            <div style={{ height: topSpacer }} />
+            {items}
+            <div style={{ height: bottomSpacer }} />
+        </div>
+    );
+};
+
 const ResultSection: React.FC<{ title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode; isNested?: boolean; onExplain?: (topic: string) => void }> = ({ title, isOpen, onToggle, children, isNested, onExplain }) => (
     <div className={`${isNested ? 'glass-panel rounded-2xl' : 'glass-card rounded-2xl'}`}>
         <button onClick={onToggle} className={`w-full p-4 text-left flex justify-between items-center transition-colors ${isNested ? 'hover:bg-white/10 rounded-2xl' : 'hover:bg-white/10'} ${isOpen ? (isNested ? '' : 'rounded-t-2xl') : 'rounded-2xl'}`}>
             <div className="min-w-0 flex-1 flex items-center gap-2">
-                <h2 className={`text-xl font-semibold break-words w-full text-left pr-4 ${isNested ? 'text-slate-700 dark:text-sky-200' : 'text-slate-800 dark:text-sky-100'}`}>{title}</h2>
+                <h2 className="text-xl font-semibold break-words w-full text-left pr-4 text-ink">{title}</h2>
                 {onExplain && (
                     <button
                         onClick={(e) => { e.stopPropagation(); onExplain(title); }}
-                        className="p-1 rounded-full text-slate-600 dark:text-sky-100 hover:bg-white/10 transition-colors flex-shrink-0"
+                        className="p-1 rounded-full text-secondary hover:bg-white/10 transition-colors flex-shrink-0"
                         aria-label={`Explain ${title}`}
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -97,7 +201,7 @@ const DetailsToggleButton: React.FC<{
             <button
                 onClick={handleClick}
                 disabled={!!loadingDetails}
-                className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-all transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed text-sm"
+                className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-2 px-4 rounded-lg transition-all transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
             >
                 {buttonContent}
             </button>
@@ -106,10 +210,10 @@ const DetailsToggleButton: React.FC<{
 };
 
 // A robust wrapper for making LaTeX content scrollable
-const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string}> = ({ latex, displayMode = true, rowClassProvider }) => (
+const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean}> = ({ latex, displayMode = true, rowClassProvider, lazy }) => (
     <div className="overflow-x-auto w-full p-2 flex justify-center">
       <div className="min-w-max">
-        <LatexRenderer latex={latex} displayMode={displayMode} rowClassProvider={rowClassProvider} />
+        <LatexRenderer latex={latex} displayMode={displayMode} rowClassProvider={rowClassProvider} lazy={lazy} />
       </div>
     </div>
 );
@@ -129,9 +233,9 @@ const AssumptionSteps: React.FC<{ condition: SymbolicFraction }> = ({ condition 
 };
 
 const AssumptionsDisplay: React.FC<{ conditions: SymbolicFraction[] }> = ({ conditions }) => (
-    <div className="bg-yellow-400/20 dark:bg-yellow-900/50 border border-yellow-500/30 dark:border-yellow-700 text-yellow-800 dark:text-yellow-300 rounded-lg p-4 space-y-4">
+    <div className="bg-yellow-400/20 border border-yellow-500/30 text-yellow-800 rounded-lg p-4 space-y-4">
         <p className="font-bold break-words">To proceed with the calculation, the following assumptions were made. The results below are valid only if these conditions are met:</p>
-        <ul className="space-y-3">{conditions.map((cond, i) => <li key={i} className="p-3 bg-gray-50 dark:bg-gray-900/40 rounded-md"><AssumptionSteps condition={cond} /></li>)}</ul>
+        <ul className="space-y-3">{conditions.map((cond, i) => <li key={i} className="p-3 glass-panel rounded-md"><AssumptionSteps condition={cond} /></li>)}</ul>
     </div>
 );
 
@@ -142,11 +246,11 @@ const OperationWorkingsDisplay: React.FC<{ details: MatrixMultiplicationDetail }
 );
 
 const SummaryMessageDisplay: React.FC<{ message: string }> = ({ message }) => (
-    <div className="p-3 bg-blue-400/20 dark:bg-blue-900/50 border border-blue-500/30 dark:border-blue-700 text-blue-800 dark:text-blue-300 rounded-lg text-sm"><p className="break-words">{message}</p></div>
+    <div className="p-3 bg-blue-400/20 border border-blue-500/30 text-blue-800 rounded-lg text-sm"><p className="break-words">{message}</p></div>
 );
 
 const UserAssumptionsDisplay: React.FC<{ assumptions: VariableAssumption[] }> = ({ assumptions }) => (
-    <div className="p-3 bg-emerald-400/20 dark:bg-emerald-900/40 border border-emerald-500/30 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 rounded-lg text-sm space-y-2">
+    <div className="p-3 bg-emerald-400/20 border border-emerald-500/30 text-emerald-800 rounded-lg text-sm space-y-2">
         <p className="font-semibold">User Assumptions</p>
         <ul className="list-disc list-inside space-y-1">
             {assumptions.map((a, i) => (
@@ -160,35 +264,99 @@ const UserAssumptionsDisplay: React.FC<{ assumptions: VariableAssumption[] }> = 
 
 const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMatrix: ValidMatrix | null; numberFormat?: NumberFormatOptions }> = ({ result, analysisMatrix, numberFormat }) => {
     const vectorToLatex = (values: number[]) => `\\begin{bmatrix} ${values.map(v => formatNumberToLatex(v, numberFormat)).join(' \\\\ ')} \\end{bmatrix}`;
+    const [localOpen, setLocalOpen] = React.useState<Record<string, boolean>>({});
+    const isOpen = (section: string) => localOpen[section] !== false;
+    const toggleSection = (section: string) => {
+        setLocalOpen(prev => ({ ...prev, [section]: prev[section] === undefined ? false : !prev[section] }));
+    };
+    const [epsilon, setEpsilon] = React.useState(1e-3);
+    const [showRounding, setShowRounding] = React.useState(false);
+    const numericMatrix = React.useMemo(() => {
+        if (!analysisMatrix || result.mode !== 'numeric') return null;
+        try { return toNumericMatrix(analysisMatrix); } catch { return null; }
+    }, [analysisMatrix, result.mode]);
+    const conditionNumber = React.useMemo(() => {
+        if (!numericMatrix) return null;
+        try { return numericConditionNumber(numericMatrix); } catch { return null; }
+    }, [numericMatrix]);
+    const perturbation = React.useMemo(() => {
+        if (!numericMatrix) return null;
+        const perturbed = numericMatrix.map(row => row.map(v => v + epsilon));
+        const trace = numericTrace(numericMatrix);
+        const tracePerturbed = numericTrace(perturbed);
+        return {
+            traceDelta: tracePerturbed - trace,
+            maxDelta: epsilon,
+        };
+    }, [numericMatrix, epsilon]);
 
     return (
         <div className="space-y-4">
             {analysisMatrix && (
-                <ResultSection title="Input Matrix" isOpen={true} onToggle={() => {}}>
+                <ResultSection title="Input Matrix" isOpen={isOpen("Input Matrix")} onToggle={() => toggleSection("Input Matrix")}>
                     <ScrollableLatex latex={formatMatrixToLatex(analysisMatrix)} />
                 </ResultSection>
             )}
-            <ResultSection title="Summary" isOpen={true} onToggle={() => {}}>
+            <ResultSection title="Summary" isOpen={isOpen("Summary")} onToggle={() => toggleSection("Summary")}>
                 <div className="space-y-3">
-                    <div className="text-gray-600 dark:text-gray-300"><span className="font-semibold">Rank:</span> {result.rank}</div>
+                    <div className="text-secondary"><span className="font-semibold">Rank:</span> {result.rank}</div>
                     {result.trace !== undefined && (
-                        <div className="text-gray-600 dark:text-gray-300">
+                        <div className="text-secondary">
                             <span className="font-semibold">Trace:</span>{' '}
                             <LatexRenderer latex={`\\operatorname{tr}(A) = ${result.mode === 'exact' ? formatSymbolicFractionToLatex(result.trace) : formatNumberToLatex(result.trace, numberFormat)}`} displayMode={false} />
                         </div>
                     )}
+                    {conditionNumber !== null && Number.isFinite(conditionNumber) && (
+                        <div className="text-secondary">
+                            <span className="font-semibold">Condition number:</span> {conditionNumber.toExponential(2)}
+                        </div>
+                    )}
                     {result.warnings.length > 0 && (
-                        <div className="p-3 bg-yellow-400/20 dark:bg-yellow-900/40 border border-yellow-500/30 dark:border-yellow-700 text-yellow-800 dark:text-yellow-300 rounded-lg text-sm space-y-1">
+                        <div className="p-3 bg-yellow-400/20 border border-yellow-500/30 text-yellow-800 rounded-lg text-sm space-y-1">
                             {result.warnings.map((warning, i) => <p key={i}>{warning}</p>)}
                         </div>
                     )}
                 </div>
             </ResultSection>
 
+            {result.mode === 'numeric' && numericMatrix && (
+                <ResultSection title="Sensitivity" isOpen={isOpen("Sensitivity")} onToggle={() => toggleSection("Sensitivity")}>
+                    <div className="space-y-3 text-sm text-secondary">
+                        <label className="flex items-center gap-2">
+                            <span>ε</span>
+                            <input type="number" value={epsilon} onChange={e => setEpsilon(parseFloat(e.target.value) || 0)} className="w-24 glass-input rounded-md px-2 py-1" />
+                        </label>
+                        {perturbation && (
+                            <div>Trace Δ ≈ {perturbation.traceDelta.toExponential(2)} · Max Δ entry ≈ {perturbation.maxDelta}</div>
+                        )}
+                    </div>
+                </ResultSection>
+            )}
+
+            {result.mode === 'numeric' && numericMatrix && (
+                <ResultSection title="Floating-point Error" isOpen={isOpen("Floating-point Error")} onToggle={() => toggleSection("Floating-point Error")}>
+                    <div className="space-y-2 text-sm text-secondary">
+                        <button onClick={() => setShowRounding(prev => !prev)} className={`px-2 py-1 rounded-lg ${showRounding ? 'glass-btn-primary text-white' : 'glass-btn'}`}>
+                            {showRounding ? 'Hide rounded' : 'Show rounded'}
+                        </button>
+                        {showRounding && (
+                            <div>
+                                <div className="text-xs text-secondary mb-1">Rounded matrix (by number format)</div>
+                                <LatexRenderer latex={formatNumericMatrixToLatex(numericMatrix.map(row => row.map(v => {
+                                    const digits = numberFormat?.digits ?? 6;
+                                    const factor = Math.pow(10, digits);
+                                    return Math.round(v * factor) / factor;
+                                })), numberFormat)} />
+                            </div>
+                        )}
+                    </div>
+                </ResultSection>
+            )}
+
             {result.mode === 'numeric' && result.lu && (
-                <ResultSection title="LU Decomposition" isOpen={true} onToggle={() => {}}>
+                <ResultSection title="LU Decomposition" isOpen={isOpen("LU Decomposition")} onToggle={() => toggleSection("LU Decomposition")}>
                     <div className="space-y-3">
-                        <p className="text-gray-500 dark:text-gray-400 break-words">Permutation matrix P, lower L, and upper U such that P·A = L·U.</p>
+                        <p className="text-secondary break-words">Permutation matrix P, lower L, and upper U such that P·A = L·U.</p>
                         <ScrollableLatex latex={`P = ${formatNumericMatrixToLatex(result.lu.P, numberFormat)}`} />
                         <ScrollableLatex latex={`L = ${formatNumericMatrixToLatex(result.lu.L, numberFormat)}`} />
                         <ScrollableLatex latex={`U = ${formatNumericMatrixToLatex(result.lu.U, numberFormat)}`} />
@@ -197,9 +365,9 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
             )}
 
             {result.mode === 'numeric' && result.qr && (
-                <ResultSection title="QR Decomposition" isOpen={true} onToggle={() => {}}>
+                <ResultSection title="QR Decomposition" isOpen={isOpen("QR Decomposition")} onToggle={() => toggleSection("QR Decomposition")}>
                     <div className="space-y-3">
-                        <p className="text-gray-500 dark:text-gray-400 break-words">Q has orthonormal columns, and A = Q·R.</p>
+                        <p className="text-secondary break-words">Q has orthonormal columns, and A = Q·R.</p>
                         <ScrollableLatex latex={`Q = ${formatNumericMatrixToLatex(result.qr.Q, numberFormat)}`} />
                         <ScrollableLatex latex={`R = ${formatNumericMatrixToLatex(result.qr.R, numberFormat)}`} />
                     </div>
@@ -207,13 +375,13 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
             )}
 
             {result.mode === 'numeric' && result.svd && (
-                <ResultSection title="Singular Value Decomposition" isOpen={true} onToggle={() => {}}>
+                <ResultSection title="Singular Value Decomposition" isOpen={isOpen("Singular Value Decomposition")} onToggle={() => toggleSection("Singular Value Decomposition")}>
                     <div className="space-y-3">
-                        <p className="text-gray-500 dark:text-gray-400 break-words">A = U·S·Vᵀ (economy SVD).</p>
+                        <p className="text-secondary break-words">A = U·S·Vᵀ (economy SVD).</p>
                         <ScrollableLatex latex={`U = ${formatNumericMatrixToLatex(result.svd.U, numberFormat)}`} />
                         <ScrollableLatex latex={`S = ${formatNumericMatrixToLatex(result.svd.S, numberFormat)}`} />
                         <ScrollableLatex latex={`V^T = ${formatNumericMatrixToLatex(result.svd.Vt, numberFormat)}`} />
-                        <div className="text-gray-600 dark:text-gray-300 text-sm">
+                        <div className="text-secondary text-sm">
                             <span className="font-semibold">Singular values:</span>{' '}
                             <LatexRenderer latex={vectorToLatex(result.svd.singularValues)} displayMode={false} />
                         </div>
@@ -222,19 +390,19 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
             )}
 
             {result.mode === 'numeric' && result.eigen && (
-                <ResultSection title="Eigen Analysis" isOpen={true} onToggle={() => {}}>
+                <ResultSection title="Eigen Analysis" isOpen={isOpen("Eigen Analysis")} onToggle={() => toggleSection("Eigen Analysis")}>
                     <div className="space-y-3">
-                        <p className="text-gray-500 dark:text-gray-400 break-words">
+                        <p className="text-secondary break-words">
                             {result.eigen.symmetric ? 'Eigenvalues and eigenvectors computed with a symmetric Jacobi solver.' : 'Eigenvalues computed with QR iteration. Eigenvectors are only available for symmetric matrices.'}
                         </p>
-                        <div className="text-gray-600 dark:text-gray-300 text-sm">
+                        <div className="text-secondary text-sm">
                             <span className="font-semibold">Eigenvalues:</span>{' '}
                             <LatexRenderer latex={vectorToLatex(result.eigen.values)} displayMode={false} />
                         </div>
                         {result.eigen.vectors && (
                             <ScrollableLatex latex={`V = ${formatNumericMatrixToLatex(result.eigen.vectors, numberFormat)}`} />
                         )}
-                        <div className="text-xs text-gray-500 dark:text-gray-400">Iterations: {result.eigen.iterations} · {result.eigen.converged ? 'Converged' : 'Max iterations reached'}</div>
+                        <div className="text-xs text-secondary">Iterations: {result.eigen.iterations} · {result.eigen.converged ? 'Converged' : 'Max iterations reached'}</div>
                     </div>
                 </ResultSection>
             )}
@@ -256,8 +424,8 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
         }
         onToggleSection(sectionName);
     }} onExplain={onExplain}>
-         <p className="text-gray-600 dark:text-gray-300 mb-2 font-semibold break-words">Final Value:</p>
-         <div className="text-center text-xl sm:text-2xl font-bold p-4 bg-gray-100 dark:bg-gray-900/50 rounded-md mb-6"><ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(determinant.value)}`} /></div>
+         <p className="text-secondary mb-2 font-semibold break-words">Final Value:</p>
+         <div className="text-center text-xl sm:text-2xl font-bold p-4 glass-panel rounded-md mb-6"><ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(determinant.value)}`} /></div>
         
         <DetailsToggleButton 
             sectionName={sectionName}
@@ -269,18 +437,18 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
         {detailsExist && (
             <div className="space-y-4 mt-4">
                 <ResultSection title={cofactorSectionName} isOpen={!collapsedSections[cofactorSectionName]} onToggle={() => toggleDetailsVisibility(cofactorSectionName)} isNested>
-                    <div className="bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg space-y-4">
-                         <p className="text-gray-500 dark:text-gray-400 break-words">The determinant is found by recursively breaking down the matrix into smaller 2x2 matrices.</p>
+                    <div className="glass-panel p-4 rounded-lg space-y-4">
+                         <p className="text-secondary break-words">The determinant is found by recursively breaking down the matrix into smaller 2x2 matrices.</p>
                          {determinant.summaryMessage ? <SummaryMessageDisplay message={determinant.summaryMessage} /> : <div className="text-left space-y-2">{determinant.cofactorSteps.map((step, i) => <div key={i} className="pl-2"><ScrollableLatex latex={step} displayMode={true} /></div>)}</div>}
                     </div>
                 </ResultSection>
 
                 <ResultSection title={rowOpSectionName} isOpen={!collapsedSections[rowOpSectionName]} onToggle={() => toggleDetailsVisibility(rowOpSectionName)} isNested>
-                     <div className="bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg">
+                     <div className="glass-panel p-4 rounded-lg">
                         <DeterminantRowOpsRenderer steps={determinant.rowOpSteps} />
-                        <div className="border-t border-gray-300 dark:border-gray-700/50 my-6"></div>
-                        <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">Final Calculation</h4></div>
-                        <p className="text-gray-500 dark:text-gray-400 mb-3 break-words">{determinant.rowOpFinalCalculation.description}</p>
+                        <div className="border-t border-[var(--glass-border)] my-6"></div>
+                        <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">Final Calculation</h4></div>
+                        <p className="text-secondary mb-3 break-words">{determinant.rowOpFinalCalculation.description}</p>
                         <ScrollableLatex latex={determinant.rowOpFinalCalculation.equation} />
                      </div>
                 </ResultSection>
@@ -290,23 +458,23 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
 )};
 
 const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, onToggleSection, openSections, onUseResult, handleRequestAndShowDetails, collapsedSections, toggleDetailsVisibility, loadingDetails }) => {
-    
+    const [stepsOpen, setStepsOpen] = React.useState(true);
     const sectionNameForWorkings = (index: number) => `op-workings-${index}`;
 
     return (
     <div className="space-y-4">
         {result.conditions.length > 0 && <ResultSection title="Assumptions Made During Calculation" isOpen={!!openSections["Assumptions Made During Calculation"]} onToggle={() => onToggleSection("Assumptions Made During Calculation")}><AssumptionsDisplay conditions={result.conditions} /></ResultSection>}
-        <ResultSection title="Step-by-step Calculation" isOpen={true} onToggle={() => {}}><div className="flex flex-col items-center space-y-4">{result.steps.map((step, index) => {
+        <ResultSection title="Step-by-step Calculation" isOpen={stepsOpen} onToggle={() => setStepsOpen(prev => !prev)}><div className="flex flex-col items-center space-y-4">{result.steps.map((step, index) => {
             const workingsSectionName = sectionNameForWorkings(index);
             const detailsExist = !!step.details;
             const isWorkingsCollapsed = !!collapsedSections[workingsSectionName];
 
             return (
-            <div key={`op-step-${index}`} className="flex flex-col items-center w-full space-y-2 p-4 bg-gray-100 dark:bg-gray-900/40 rounded-lg">
-                <div className="flex flex-col items-center text-cyan-600 dark:text-cyan-400 w-full">
-                    <div className="mt-1 px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-md shadow-inner text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
+            <div key={`op-step-${index}`} className="flex flex-col items-center w-full space-y-2 p-4 glass-panel rounded-lg">
+                <div className="flex flex-col items-center text-primary w-full">
+                    <div className="mt-1 px-3 py-1 glass-panel rounded-md shadow-inner text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-900/50 p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixToLatex(step.result)}`} /></div>
+                <div className="glass-panel p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixToLatex(step.result)}`} /></div>
                 
                 {detailsExist && (
                      <button
@@ -330,7 +498,7 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
             </div>
             )
         })}</div></ResultSection>
-        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full"><ScrollableLatex latex={formatMatrixToLatex(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
+        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={formatMatrixToLatex(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
     </div>
 )};
 
@@ -375,8 +543,8 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 if (!openSections[refSectionName]) { toggleDetailsVisibility(refSectionName, true); }
                 onToggleSection(refSectionName);
             }} onExplain={props.onExplain}>
-                <p className="text-gray-600 dark:text-gray-300 mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} /></div>
+                <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} /></div>
                 <StepsSection sectionName={refSectionName} steps={refSteps} formName="Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -389,8 +557,8 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 if (!openSections[rrefSectionName]) { toggleDetailsVisibility(rrefSectionName, true); }
                 onToggleSection(rrefSectionName);
             }} onExplain={props.onExplain}>
-                <p className="text-gray-600 dark:text-gray-300 mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} /></div>
+                <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} /></div>
                  <StepsSection sectionName={rrefSectionName} steps={rrefSteps} formName="Reduced Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -422,9 +590,9 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 onToggleSection(cramersRuleSectionName);
             }} onExplain={props.onExplain}><CramersRuleDisplay result={calcResults.cramersRule} {...props} systemType={calcResults.systemType} numRows={numRows} /></ResultSection>}
             
-            {calcResults.rowSpaceBasis && <ResultSection title="Row Space" isOpen={!!openSections["Row Space"]} onToggle={() => onToggleSection("Row Space")} onExplain={props.onExplain}><BasisDisplay title="Row(A)" basis={calcResults.rowSpaceBasis} explanation={<p className="text-gray-500 dark:text-gray-400 break-words">The basis for the row space is the set of non-zero rows from the Row Echelon Form of the matrix.</p>} /></ResultSection>}
+            {calcResults.rowSpaceBasis && <ResultSection title="Row Space" isOpen={!!openSections["Row Space"]} onToggle={() => onToggleSection("Row Space")} onExplain={props.onExplain}><BasisDisplay title="Row(A)" basis={calcResults.rowSpaceBasis} explanation={<p className="text-secondary break-words">The basis for the row space is the set of non-zero rows from the Row Echelon Form of the matrix.</p>} /></ResultSection>}
             
-            {calcResults.colSpaceBasis && <ResultSection title="Column Space" isOpen={!!openSections["Column Space"]} onToggle={() => onToggleSection("Column Space")} onExplain={props.onExplain}><BasisDisplay title="Col(A)" basis={calcResults.colSpaceBasis} explanation={<p className="text-gray-500 dark:text-gray-400 break-words">The basis for the column space is the set of columns from the *original* matrix that correspond to the pivot columns in the Row Echelon Form.</p>} /></ResultSection>}
+            {calcResults.colSpaceBasis && <ResultSection title="Column Space" isOpen={!!openSections["Column Space"]} onToggle={() => onToggleSection("Column Space")} onExplain={props.onExplain}><BasisDisplay title="Col(A)" basis={calcResults.colSpaceBasis} explanation={<p className="text-secondary break-words">The basis for the column space is the set of columns from the *original* matrix that correspond to the pivot columns in the Row Echelon Form.</p>} /></ResultSection>}
             
             {calcResults.nullSpace && <ResultSection title={nullSpaceSectionName} isOpen={!!openSections[nullSpaceSectionName]} onToggle={() => {
                 if (!openSections[nullSpaceSectionName]) { toggleDetailsVisibility(nullSpaceSectionName, true); }
@@ -438,6 +606,35 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
     const { results, onUseResult } = props;
     const [collapsedSections, setCollapsedSections] = React.useState<Record<string, boolean>>({});
     const assumptions = props.variableAssumptions || [];
+
+    const constraintWarnings = React.useMemo(() => {
+        if (assumptions.length === 0) return [];
+        const matrices: (Matrix | null)[] = [];
+        matrices.push(props.originalMatrix || null);
+        matrices.push(props.analysisMatrix || null);
+        if (isMatrixOpsResult(results)) matrices.push(results.finalResult);
+        if (isDeterminantOfOpsResult(results)) matrices.push(results.operationResult.finalResult);
+        const warnings: string[] = [];
+        const checkValue = (value: number, assumption: VariableAssumption) => {
+            if (assumption.constraint === 'nonzero' && Math.abs(value) < 1e-12) return `${assumption.variable} is assumed nonzero but encountered 0.`;
+            if (assumption.constraint === 'positive' && value <= 0) return `${assumption.variable} is assumed positive but encountered ${value}.`;
+            if (assumption.constraint === 'negative' && value >= 0) return `${assumption.variable} is assumed negative but encountered ${value}.`;
+            if (assumption.constraint === 'integer' && Math.abs(value - Math.round(value)) > 1e-10) return `${assumption.variable} is assumed integer but encountered ${value}.`;
+            return null;
+        };
+        matrices.forEach(matrix => {
+            if (!matrix) return;
+            matrix.forEach(row => row.forEach(cell => {
+                const numeric = cell ? symbolicFractionToNumber(cell) : null;
+                if (numeric === null) return;
+                assumptions.forEach(a => {
+                    const warning = checkValue(numeric, a);
+                    if (warning) warnings.push(warning);
+                });
+            }));
+        });
+        return warnings;
+    }, [assumptions, props.originalMatrix, props.analysisMatrix, results]);
 
     const handleRequestAndShowDetails = (section: string, payload?: any) => {
         setCollapsedSections(prev => ({ ...prev, [section]: false }));
@@ -460,7 +657,14 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
 
     return (
         <div className="space-y-4">
+            <SummaryBar results={results} numberFormat={props.numberFormat} />
             {assumptions.length > 0 && <UserAssumptionsDisplay assumptions={assumptions} />}
+            {constraintWarnings.length > 0 && (
+                <div className="p-3 bg-red-400/20 border border-red-500/30 rounded-lg text-sm space-y-1">
+                    <div className="font-semibold text-red-700 ">Constraint Violations</div>
+                    {constraintWarnings.map((w, i) => <div key={i} className="text-red-700 ">{w}</div>)}
+                </div>
+            )}
             {isSystemSolverResult(results) && <SystemSolverResultDisplay {...sharedProps} />}
             {isMatrixOpsResult(results) && <MatrixOperationsResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
             {isDeterminantOfOpsResult(results) && <DeterminantOfOperationResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
@@ -488,7 +692,7 @@ const StepsSection: React.FC<{ sectionName: string, steps: RowOperationStep[], f
                         {isCollapsed ? 'Show Step-by-step Calculation' : 'Hide Step-by-step Calculation'}
                     </button>
                     <div className={`accordion-content ${!isCollapsed ? 'open' : ''}`}>
-                        <div className="pt-4 border-t border-gray-300/50 dark:border-gray-700/50 mt-4">
+                        <div className="pt-4 border-t border-[var(--glass-border)] mt-4">
                             {summaryMessage && <SummaryMessageDisplay message={summaryMessage} />}
                             <StepsRenderer steps={steps} formName={formName} systemType={systemType} tutorMode={tutorMode} onInfo={onInfo} />
                         </div>
@@ -504,6 +708,55 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
     const [timelineIndex, setTimelineIndex] = React.useState(0);
     const [isPlaying, setIsPlaying] = React.useState(false);
     const [bookmarks, setBookmarks] = React.useState<number[]>([]);
+    const [highlightDiff, setHighlightDiff] = React.useState(false);
+    const [verifyInputs, setVerifyInputs] = React.useState<Record<number, string>>({});
+    const [verifyResults, setVerifyResults] = React.useState<Record<number, { ok: boolean; mismatches: number[] }>>({});
+
+    const applyRowOperation = (matrix: ValidMatrix, input: string): ValidMatrix => {
+        const tokens = input.trim().toLowerCase().split(/\s+/);
+        if (tokens.length < 3) throw new Error('Use: swap r1 r2 | scale r1 k | add r1 r2 k');
+        const clone = matrix.map(row => row.map(cell => cell));
+        if (tokens[0] === 'swap') {
+            const r1 = parseInt(tokens[1].replace('r', ''), 10) - 1;
+            const r2 = parseInt(tokens[2].replace('r', ''), 10) - 1;
+            [clone[r1], clone[r2]] = [clone[r2], clone[r1]];
+            return clone;
+        }
+        if (tokens[0] === 'scale') {
+            const r = parseInt(tokens[1].replace('r', ''), 10) - 1;
+            const k = parseInput(tokens[2]);
+            clone[r] = clone[r].map(cell => multiplySF(cell as any, k));
+            return clone;
+        }
+        if (tokens[0] === 'add') {
+            const r1 = parseInt(tokens[1].replace('r', ''), 10) - 1;
+            const r2 = parseInt(tokens[2].replace('r', ''), 10) - 1;
+            const k = parseInput(tokens[3] || '1');
+            clone[r1] = clone[r1].map((cell, idx) => addSF(cell as any, multiplySF(clone[r2][idx] as any, k)));
+            return clone;
+        }
+        throw new Error('Unsupported operation.');
+    };
+
+    const handleVerifyStep = (index: number, step: RowOperationStep) => {
+        try {
+            if (!step.matrixBefore || !step.matrix) throw new Error('Step data unavailable.');
+            const input = verifyInputs[index] || '';
+            const computed = applyRowOperation(step.matrixBefore, input);
+            const mismatches: number[] = [];
+            computed.forEach((row, r) => {
+                for (let c = 0; c < row.length; c++) {
+                    if (!areSFEqual(row[c], step.matrix![r][c])) {
+                        mismatches.push(r);
+                        break;
+                    }
+                }
+            });
+            setVerifyResults(prev => ({ ...prev, [index]: { ok: mismatches.length === 0, mismatches } }));
+        } catch {
+            setVerifyResults(prev => ({ ...prev, [index]: { ok: false, mismatches: [-1] } }));
+        }
+    };
 
     const explainOperation = (operation: string) => {
         const swap = operation.match(/R_\\{(\\d+)\\}.*leftrightarrow.*R_\\{(\\d+)\\}/);
@@ -520,8 +773,8 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
 
     if (!steps || steps.length === 0) {
         return (
-            <div className="text-center bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg">
-                <p className="text-gray-600 dark:text-gray-300 break-words">No operations were needed for this phase.</p>
+            <div className="text-center glass-panel p-4 rounded-lg">
+                <p className="text-secondary break-words">No operations were needed for this phase.</p>
             </div>
         );
     }
@@ -543,10 +796,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
     
     if (actualSteps.length === 0 && isFirstStepAPlaceholder) {
         return (
-            <div className="text-center bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg">
-                <p className="text-gray-600 dark:text-gray-300 mb-4 break-words">No operations were needed. The starting matrix is already in {formName}.</p>
+            <div className="text-center glass-panel p-4 rounded-lg">
+                <p className="text-secondary mb-4 break-words">No operations were needed. The starting matrix is already in {formName}.</p>
                 {initialMatrix && (
-                    <div className="bg-gray-50 dark:bg-gray-900/50 p-2 rounded-lg w-full">
+                    <div className="glass-panel p-2 rounded-lg w-full">
                         <ScrollableLatex latex={matrixFormatter(initialMatrix)} />
                     </div>
                 )}
@@ -603,15 +856,83 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         if (prev !== undefined) setTimelineIndex(prev);
     };
 
+    const shouldVirtualizeSteps = actualSteps.length > 30;
+    const stepList = (index: number) => {
+        const step = actualSteps[index];
+        const lazy = shouldVirtualizeSteps;
+        const verify = verifyResults[index];
+        const rowProvider = (r: number) => {
+            if (verify && verify.mismatches.includes(r)) return 'bg-red-200/60';
+            if (highlightDiff && step.matrixBefore && rowHasChanged(step.matrixBefore![r], step.matrix![r])) return 'bg-amber-100/60';
+            return '';
+        };
+        return (
+            <div key={`${formName}-step-${index}`} className="flex flex-col items-center w-full space-y-2 mb-4">
+                <div className="flex flex-col items-center text-primary w-full">
+                    <LatexRenderer latex={`\\downarrow`} displayMode={true} />
+                    <div className="mt-1 px-3 py-1 glass-panel rounded-xl text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
+                </div>
+                {step.description && <p className="text-sm text-secondary italic mt-2 text-center break-words">{step.description}</p>}
+                {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
+                {step.matrix ? <div className="glass-panel p-2 rounded-2xl w-full"><ScrollableLatex latex={matrixFormatter(step.matrix)} lazy={lazy} rowClassProvider={rowProvider} /></div> : <p className="text-sm text-secondary">(Intermediate matrix hidden for performance)</p>}
+                {step.matrixBefore && (
+                    <div className="w-full flex flex-wrap gap-2 items-center">
+                        <input
+                            value={verifyInputs[index] || ''}
+                            onChange={(e) => setVerifyInputs(prev => ({ ...prev, [index]: e.target.value }))}
+                            placeholder="swap r1 r2 | scale r1 2 | add r1 r2 -3"
+                            className="flex-1 rounded-md glass-input px-2 py-1 text-xs"
+                        />
+                        <button onClick={() => handleVerifyStep(index, step)} className="px-2 py-1 rounded-lg glass-btn text-xs">Verify</button>
+                        {verify && <span className={`text-xs ${verify.ok ? 'text-emerald-600' : 'text-red-600'}`}>{verify.ok ? 'OK' : 'Mismatch'}</span>}
+                    </div>
+                )}
+            </div>
+        );
+    };
+    const stepSideBySide = (index: number) => {
+        const step = actualSteps[index];
+        const lazy = shouldVirtualizeSteps;
+        return (
+            <div key={`${formName}-sbs-step-${index}`} className="p-4 glass-panel rounded-2xl space-y-2 mb-4">
+                <div className="px-3 py-1 glass-panel rounded-xl text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
+                {step.description && <p className="text-sm text-secondary italic text-center break-words">{step.description}</p>}
+                {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
+                    <div className="w-full">
+                        {step.matrixBefore && (
+                            <ScrollableLatex
+                                latex={matrixFormatter(step.matrixBefore)}
+                                rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
+                                lazy={lazy}
+                            />
+                        )}
+                    </div>
+                    <div className="hidden md:block text-primary"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
+                    <div className="w-full">
+                        {step.matrix && (
+                            <ScrollableLatex
+                                latex={matrixFormatter(step.matrix)}
+                                rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
+                                lazy={lazy}
+                            />
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="flex flex-col items-center space-y-4">
              <div className="flex self-end items-center text-sm flex-wrap gap-2">
-                <span className="mr-2 text-gray-500 dark:text-gray-400">View:</span>
+                <span className="mr-2 text-secondary">View:</span>
                 <div className="flex glass-panel rounded-2xl p-1">
                     <button onClick={() => setViewMode('list')} className={`px-2 py-1 rounded-xl transition-colors text-xs glass-tab ${viewMode==='list' ? 'tab active' : ''}`}>List</button>
                     <button onClick={() => setViewMode('side-by-side')} className={`px-2 py-1 rounded-xl transition-colors text-xs glass-tab ${viewMode==='side-by-side' ? 'tab active' : ''}`}>Side-by-Side</button>
                     <button onClick={() => setViewMode('timeline')} className={`px-2 py-1 rounded-xl transition-colors text-xs glass-tab ${viewMode==='timeline' ? 'tab active' : ''}`}>Timeline</button>
                 </div>
+                <button onClick={() => setHighlightDiff(prev => !prev)} className={`px-2 py-1 rounded-xl text-xs ${highlightDiff ? 'glass-btn-primary' : 'glass-btn'}`}>{highlightDiff ? 'Diff On' : 'Diff Off'}</button>
                 {onInfo && (
                     <button
                         type="button"
@@ -626,41 +947,43 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
 
             {initialMatrix && (
                 <>
-                    <p className="text-gray-500 dark:text-gray-400 break-words">
+                    <p className="text-secondary break-words">
                         {isFirstStepAPlaceholder ? "Starting with the initial matrix:" : "Starting matrix for this phase:"}
                     </p>
                     <div className="glass-panel p-2 rounded-2xl w-full">
-                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} />
+                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} lazy={shouldVirtualizeSteps} />
                     </div>
                 </>
             )}
 
             {viewMode === 'list' ? (
-                actualSteps.map((step, index) => (
-                    <div key={`${formName}-step-${index}`} className="flex flex-col items-center w-full space-y-2">
-                        <div className="flex flex-col items-center text-indigo-500 dark:text-indigo-400 w-full">
-                            <LatexRenderer latex={`\\downarrow`} displayMode={true} />
-                            <div className="mt-1 px-3 py-1 glass-panel rounded-xl text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
-                        </div>
-                        {step.description && <p className="text-sm text-gray-500 dark:text-gray-400 italic mt-2 text-center break-words">{step.description}</p>}
-                        {tutorMode && <div className="text-xs text-gray-600 dark:text-gray-300 bg-blue-100/60 dark:bg-blue-900/30 rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
-                        {step.matrix ? <div className="glass-panel p-2 rounded-2xl w-full"><ScrollableLatex latex={matrixFormatter(step.matrix)} /></div> : <p className="text-sm text-gray-500">(Intermediate matrix hidden for performance)</p>}
+                shouldVirtualizeSteps ? (
+                    <VirtualizedList
+                        itemCount={actualSteps.length}
+                        estimateHeight={260}
+                        maxHeight={560}
+                        className="w-full pr-1"
+                        renderItem={stepList}
+                    />
+                ) : (
+                    <div className="w-full">
+                        {actualSteps.map((_, index) => stepList(index))}
                     </div>
-                ))
+                )
             ) : viewMode === 'side-by-side' ? (
-                <div className="space-y-4 w-full">
-                    {actualSteps.map((step, index) => (
-                    <div key={`${formName}-sbs-step-${index}`} className="p-4 glass-panel rounded-2xl space-y-2">
-                        <div className="px-3 py-1 glass-panel rounded-xl text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
-                        {step.description && <p className="text-sm text-gray-500 dark:text-gray-400 italic text-center break-words">{step.description}</p>}
-                        {tutorMode && <div className="text-xs text-gray-600 dark:text-gray-300 bg-blue-100/60 dark:bg-blue-900/30 rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
-                        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
-                            <div className="w-full">{step.matrixBefore && <ScrollableLatex latex={matrixFormatter(step.matrixBefore)} rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50 dark:bg-cyan-900/20' : ''} />}</div>
-                            <div className="hidden md:block text-indigo-500 dark:text-indigo-400"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
-                            <div className="w-full">{step.matrix && <ScrollableLatex latex={matrixFormatter(step.matrix)} rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50 dark:bg-cyan-900/20' : ''} />}</div>
-                        </div>
-                    </div>))}
-                </div>
+                shouldVirtualizeSteps ? (
+                    <VirtualizedList
+                        itemCount={actualSteps.length}
+                        estimateHeight={320}
+                        maxHeight={560}
+                        className="w-full pr-1"
+                        renderItem={stepSideBySide}
+                    />
+                ) : (
+                    <div className="w-full">
+                        {actualSteps.map((_, index) => stepSideBySide(index))}
+                    </div>
+                )
             ) : (
                 <div className="w-full space-y-4">
                     <div className="flex flex-wrap items-center gap-2 justify-between">
@@ -683,11 +1006,11 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                         onChange={(e) => setTimelineIndex(parseInt(e.target.value, 10))}
                         className="w-full"
                     />
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Step {timelineIndex + 1} of {actualSteps.length}</div>
+                    <div className="text-xs text-secondary">Step {timelineIndex + 1} of {actualSteps.length}</div>
                     {bookmarks.length > 0 && (
                         <div className="flex flex-wrap gap-2 text-xs">
                             {bookmarks.map(b => (
-                                <button key={b} onClick={() => setTimelineIndex(b)} className="px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                                <button key={b} onClick={() => setTimelineIndex(b)} className="px-2 py-1 rounded-md glass-panel text-emerald-700 ">
                                     Bookmark {b + 1}
                                 </button>
                             ))}
@@ -698,11 +1021,15 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                             <div className="px-3 py-1 glass-panel rounded-xl text-center w-full">
                                 <ScrollableLatex latex={actualSteps[timelineIndex].operation} displayMode={false} />
                             </div>
-                            {actualSteps[timelineIndex].description && <p className="text-sm text-gray-500 dark:text-gray-400 italic text-center break-words">{actualSteps[timelineIndex].description}</p>}
-                            {tutorMode && <div className="text-xs text-gray-600 dark:text-gray-300 bg-blue-100/60 dark:bg-blue-900/30 rounded-md px-3 py-2 text-center">{explainOperation(actualSteps[timelineIndex].operation)}</div>}
+                            {actualSteps[timelineIndex].description && <p className="text-sm text-secondary italic text-center break-words">{actualSteps[timelineIndex].description}</p>}
+                            {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(actualSteps[timelineIndex].operation)}</div>}
                             {actualSteps[timelineIndex].matrix && (
                                 <div className="glass-panel p-2 rounded-2xl w-full">
-                                    <ScrollableLatex latex={matrixFormatter(actualSteps[timelineIndex].matrix!)} />
+                                    <ScrollableLatex
+                                        latex={matrixFormatter(actualSteps[timelineIndex].matrix!)}
+                                        lazy={shouldVirtualizeSteps}
+                                        rowClassProvider={highlightDiff && actualSteps[timelineIndex].matrixBefore ? (r) => rowHasChanged(actualSteps[timelineIndex].matrixBefore![r], actualSteps[timelineIndex].matrix![r]) ? 'bg-amber-100/60' : '' : undefined}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -719,8 +1046,8 @@ const SolutionDisplay: React.FC<{ result: SolutionResult, sectionName: string } 
 
     return (
         <div className="space-y-4">
-            {result.conditions.length > 0 && <div><div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">Provided the assumptions hold:</h4></div><ul className="list-disc list-inside text-gray-500 dark:text-gray-400 space-y-1">{result.conditions.map((c, i) => <li key={i}><ScrollableLatex latex={c} /></li>)}</ul></div>}
-            <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full"><ScrollableLatex latex={result.steps[result.steps.length - 1]} /></div>
+            {result.conditions.length > 0 && <div><div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">Provided the assumptions hold:</h4></div><ul className="list-disc list-inside text-secondary space-y-1">{result.conditions.map((c, i) => <li key={i}><ScrollableLatex latex={c} /></li>)}</ul></div>}
+            <div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={result.steps[result.steps.length - 1]} /></div>
             
             <DetailsToggleButton 
                 sectionName={sectionName}
@@ -735,7 +1062,7 @@ const SolutionDisplay: React.FC<{ result: SolutionResult, sectionName: string } 
                         {isCollapsed ? 'Show Derivation' : 'Hide Derivation'}
                     </button>
                     <div className={`accordion-content ${!isCollapsed ? 'open' : ''}`}>
-                        <div className="pt-4 border-t border-gray-300/50 dark:border-gray-700/50 mt-4 bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg space-y-4 text-left">
+                        <div className="pt-4 border-t border-[var(--glass-border)] mt-4 glass-panel p-4 rounded-lg space-y-4 text-left">
                             {result.steps.slice(0, -1).map((step, i) => <div key={i} className="pl-2"><ScrollableLatex latex={step} /></div>)}
                         </div>
                     </div>
@@ -748,7 +1075,7 @@ const SolutionDisplay: React.FC<{ result: SolutionResult, sectionName: string } 
 const BasisDisplay: React.FC<{ title: string, basis: ValidMatrix[], explanation: React.ReactNode }> = ({ title, basis, explanation }) => (
     <div className="space-y-4">
         {explanation}
-        <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full">
+        <div className="p-4 glass-panel rounded-lg w-full">
             <ScrollableLatex latex={`${title} = \\text{span} \\left\\{ ${formatVectorsToLatex(basis)} \\right\\}`} />
         </div>
     </div>
@@ -760,8 +1087,8 @@ const NullSpaceDisplay: React.FC<{ result: NullSpaceResult, sectionName: string 
 
     return (
         <div className="space-y-4">
-            <p className="text-gray-500 dark:text-gray-400 break-words">The basis for the null space (or kernel) of A, denoted Nul(A), is a set of vectors that span the solution space of the homogeneous equation Ax = 0.</p>
-            <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full">
+            <p className="text-secondary break-words">The basis for the null space (or kernel) of A, denoted Nul(A), is a set of vectors that span the solution space of the homogeneous equation Ax = 0.</p>
+            <div className="p-4 glass-panel rounded-lg w-full">
                 <ScrollableLatex latex={`\\text{Nul}(A) = \\text{span} \\left\\{ ${formatVectorsToLatex(result.basis)} \\right\\}`} />
             </div>
             
@@ -778,7 +1105,7 @@ const NullSpaceDisplay: React.FC<{ result: NullSpaceResult, sectionName: string 
                         {isCollapsed ? 'Show Derivation' : 'Hide Derivation'}
                     </button>
                     <div className={`accordion-content ${!isCollapsed ? 'open' : ''}`}>
-                        <div className="pt-4 border-t border-gray-300/50 dark:border-gray-700/50 mt-4 bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg space-y-4 text-left">
+                        <div className="pt-4 border-t border-[var(--glass-border)] mt-4 glass-panel p-4 rounded-lg space-y-4 text-left">
                             {result.derivation.map((step, i) => <div key={i} className="pl-2"><ScrollableLatex latex={step} /></div>)}
                         </div>
                     </div>
@@ -794,24 +1121,24 @@ const AdjointMethodDetails: React.FC<{ result: AdjointMethodResult }> = ({ resul
         {!result.summaryMessage && (
             <>
                 <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">1. Calculate Determinant</h4></div>
+                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">1. Calculate Determinant</h4></div>
                     <ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(result.determinantOfA)}`} />
                 </div>
                 <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">2. Find Matrix of Cofactors</h4></div>
+                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2. Find Matrix of Cofactors</h4></div>
                     <ScrollableLatex latex={`C = ${formatMatrixToLatex(result.cofactorMatrix)}`} />
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-left">
-                        {result.cofactorSteps.map(step => <div key={step.position} className="p-2 bg-gray-200 dark:bg-gray-800/60 rounded"><ScrollableLatex latex={step.calculation} displayMode={true} /></div>)}
+                        {result.cofactorSteps.map(step => <div key={step.position} className="p-2 glass-panel rounded"><ScrollableLatex latex={step.calculation} displayMode={true} /></div>)}
                     </div>
                 </div>
                 <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">3. Find Adjoint (Adjugate) Matrix</h4></div>
-                    <p className="text-gray-500 dark:text-gray-400 mb-3 break-words">The adjoint is the transpose of the cofactor matrix.</p>
+                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">3. Find Adjoint (Adjugate) Matrix</h4></div>
+                    <p className="text-secondary mb-3 break-words">The adjoint is the transpose of the cofactor matrix.</p>
                     <ScrollableLatex latex={`\\text{adj}(A) = C^T = ${formatMatrixToLatex(result.adjointMatrix)}`} />
                 </div>
                 <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">4. Calculate Inverse</h4></div>
-                    <p className="text-gray-500 dark:text-gray-400 mb-3 break-words">The inverse is calculated using the formula A⁻¹ = (1/det(A)) * adj(A).</p>
+                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">4. Calculate Inverse</h4></div>
+                    <p className="text-secondary mb-3 break-words">The inverse is calculated using the formula A⁻¹ = (1/det(A)) * adj(A).</p>
                     <ScrollableLatex latex={`A^{-1} = \\frac{1}{${formatSymbolicFractionToLatex(result.determinantOfA)}} ${formatMatrixToLatex(result.adjointMatrix)} = ${formatMatrixToLatex(result.inverseMatrix)}`} />
                 </div>
             </>
@@ -825,7 +1152,7 @@ const VerificationCheck: React.FC<{ titleLatex: string, details: MatrixMultiplic
 
     return (
         <div>
-            <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words"><LatexRenderer latex={titleLatex} /></h4></div>
+            <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words"><LatexRenderer latex={titleLatex} /></h4></div>
             <ScrollableLatex latex={formatMatrixToLatex(details.product)} />
             <button
                 onClick={() => toggleDetailsVisibility(workingsSectionName)}
@@ -834,7 +1161,7 @@ const VerificationCheck: React.FC<{ titleLatex: string, details: MatrixMultiplic
                 {isWorkingsCollapsed ? "Show Workings" : "Hide Workings"}
             </button>
             <div className={`accordion-content ${!isWorkingsCollapsed ? 'open' : ''}`}>
-                <div className="mt-4 bg-gray-200/50 dark:bg-gray-800/50 p-4 rounded-lg">
+                <div className="mt-4 glass-panel p-4 rounded-lg">
                     <OperationWorkingsDisplay details={details} />
                 </div>
             </div>
@@ -848,15 +1175,15 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
     const verificationSectionName = "Verification";
 
     if (!result.exists) {
-        return <p className="text-yellow-600 dark:text-yellow-400 break-words">{result.reason}</p>;
+        return <p className="text-yellow-600  break-words">{result.reason}</p>;
     }
 
     const detailsExist = !!result.gaussJordanSteps;
 
     return (
         <div className="space-y-4">
-            <p className="text-gray-600 dark:text-gray-300 mb-2 font-semibold break-words">Final Inverse Matrix (A⁻¹):</p>
-            <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg w-full mb-6">
+            <p className="text-secondary mb-2 font-semibold break-words">Final Inverse Matrix (A⁻¹):</p>
+            <div className="p-4 glass-panel rounded-lg w-full mb-6">
                 {result.inverseMatrix ? <ScrollableLatex latex={formatMatrixToLatex(result.inverseMatrix)} /> : <p>Calculation not performed yet.</p>}
             </div>
 
@@ -870,7 +1197,7 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
             {detailsExist && (
                 <div className="space-y-4">
                     <ResultSection title={gjSectionName} isOpen={!props.collapsedSections[gjSectionName]} onToggle={() => props.toggleDetailsVisibility(gjSectionName)} isNested>
-                        <div className="bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg">
+                        <div className="glass-panel p-4 rounded-lg">
                             {result.summaryMessage && <SummaryMessageDisplay message={result.summaryMessage} />}
                             <StepsRenderer steps={result.gaussJordanSteps!} formName="Inverse" systemType="non-homogeneous" augmentedCols={result.inverseMatrix ? result.inverseMatrix[0].length : 1} tutorMode={props.tutorMode} />
                         </div>
@@ -887,9 +1214,9 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
                         }
                         props.toggleDetailsVisibility(verificationSectionName);
                      }} isNested>
-                         {result.verification ? (<div className="bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg space-y-6">
+                         {result.verification ? (<div className="glass-panel p-4 rounded-lg space-y-6">
                             <VerificationCheck titleLatex="A A^{-1} = I" details={result.verification!.a_times_ainv} workingsSectionName="verification-workings-1" {...props} />
-                            <div className="border-t border-gray-300/50 dark:border-gray-700/50 my-2"></div>
+                            <div className="border-t border-[var(--glass-border)] my-2"></div>
                             <VerificationCheck titleLatex="A^{-1} A = I" details={result.verification!.ainv_times_a} workingsSectionName="verification-workings-2" {...props} />
                         </div>) : <p>Details not available.</p>}
                     </ResultSection>
@@ -918,7 +1245,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
 
     if (!result) return <p>Waiting for calculation...</p>;
     if (!result.isApplicable && !result.summaryMessage) {
-        return <p className="text-yellow-600 dark:text-yellow-400 break-words">{result.reason}</p>;
+        return <p className="text-yellow-600  break-words">{result.reason}</p>;
     }
 
     return (
@@ -926,11 +1253,11 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
             {result.summaryMessage && <SummaryMessageDisplay message={result.summaryMessage} />}
             
             {!detailsExist && systemType === 'homogeneous' ? (
-                <div className="p-4 bg-gray-100 dark:bg-gray-900/50 rounded-lg">
-                    <p className="text-gray-600 dark:text-gray-300 mb-3 break-words">Cramer's rule is for non-homogeneous systems (Ax=b). Your system is homogeneous (Ax=0). To solve a related Ax=b system, please provide the vector 'b' below.</p>
+                <div className="p-4 glass-panel rounded-lg">
+                    <p className="text-secondary mb-3 break-words">Cramer's rule is for non-homogeneous systems (Ax=b). Your system is homogeneous (Ax=0). To solve a related Ax=b system, please provide the vector 'b' below.</p>
                     <div className="flex items-start gap-4">
                         <div className="overflow-x-auto"><LatexRenderer latex="\mathbf{b} = " /></div>
-                        <div className="flex flex-col gap-2">{[...Array(numRows)].map((_, i) => <input key={i} type="text" value={bVectorInput[i]} onChange={(e) => { const newB = [...bVectorInput]; newB[i] = e.target.value; setBVectorInput(newB); }} className="w-24 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-3 py-1 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />)}</div>
+                        <div className="flex flex-col gap-2">{[...Array(numRows)].map((_, i) => <input key={i} type="text" value={bVectorInput[i]} onChange={(e) => { const newB = [...bVectorInput]; newB[i] = e.target.value; setBVectorInput(newB); }} className="w-24 glass-input rounded-md px-3 py-1 focus:outline-none" />)}</div>
                     </div>
                     {bVectorError && <p className="text-red-500 mt-2">{bVectorError}</p>}
                     <DetailsToggleButton sectionName={sectionName} detailsExist={false} onCalculate={() => {}} loadingDetails={props.loadingDetails} onClick={handleCalculateHomogeneous}>Calculate with this 'b'</DetailsToggleButton>
@@ -950,14 +1277,14 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                         {isCollapsed ? 'Show Details' : 'Hide Details'}
                     </button>
                     <div className={`accordion-content ${!isCollapsed ? 'open' : ''}`}>
-                        <div className="pt-4 border-t border-gray-300/50 dark:border-gray-700/50 mt-4">
-                            <div><div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">1. Determinant of Coefficient Matrix (A)</h4></div><ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(result.determinantOfA!)}`} /></div>
+                        <div className="pt-4 border-t border-[var(--glass-border)] mt-4">
+                            <div><div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">1. Determinant of Coefficient Matrix (A)</h4></div><ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(result.determinantOfA!)}`} /></div>
                             {result.variableSolutions!.map((sol, i) => (
                                 <div key={sol.variableName} className="space-y-2 pt-4">
-                                    <div className="min-w-0"><h4 className="font-semibold text-lg text-cyan-700 dark:text-cyan-400 mb-2 break-words">2.{i+1}. Solve for <LatexRenderer latex={sol.variableName} displayMode={false} /></h4></div>
-                                    <p className="text-gray-500 dark:text-gray-400 break-words">Replace column {i+1} of A with the vector b to form A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
+                                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2.{i+1}. Solve for <LatexRenderer latex={sol.variableName} displayMode={false} /></h4></div>
+                                    <p className="text-secondary break-words">Replace column {i+1} of A with the vector b to form A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
                                     <ScrollableLatex latex={`A_{${sol.variableName.match(/\d+/)?.[0] || i+1}} = ${formatMatrixToLatex(sol.matrixAi)}`} />
-                                    <p className="text-gray-500 dark:text-gray-400 break-words">Calculate the determinant of A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
+                                    <p className="text-secondary break-words">Calculate the determinant of A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
                                     <ScrollableLatex latex={`\\det(A_{${sol.variableName.match(/\d+/)?.[0] || i+1}}) = ${formatSymbolicFractionToLatex(sol.determinantOfAi)}`} />
                                     <ScrollableLatex latex={sol.finalCalculation} />
                                 </div>
@@ -970,18 +1297,36 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
     );
 };
 
-const DeterminantRowOpsRenderer: React.FC<{ steps: DeterminantRowOpStep[] }> = ({ steps }) => (
-    <div className="space-y-4">
-        {steps.map((step, i) => (
-            <div key={i} className="p-3 bg-gray-200 dark:bg-gray-800/60 rounded-lg">
-                <div className="px-3 py-1 bg-gray-300 dark:bg-gray-700 rounded-md shadow-inner text-center mb-2 w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 italic mb-3 break-words">{step.description}</p>
+const DeterminantRowOpsRenderer: React.FC<{ steps: DeterminantRowOpStep[] }> = ({ steps }) => {
+    const shouldVirtualize = steps.length > 30;
+    const renderStep = (index: number) => {
+        const step = steps[index];
+        return (
+            <div key={index} className="p-3 glass-panel rounded-lg mb-4">
+                <div className="px-3 py-1 glass-panel rounded-md shadow-inner text-center mb-2 w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
+                <p className="text-sm text-secondary italic mb-3 break-words">{step.description}</p>
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixBefore)}`} /></div>
-                    <div className="hidden md:block text-indigo-500 dark:text-indigo-400"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixAfter)}`} /></div>
+                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixBefore)}`} lazy={shouldVirtualize} /></div>
+                    <div className="hidden md:block text-primary"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
+                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixAfter)}`} lazy={shouldVirtualize} /></div>
                 </div>
             </div>
-        ))}
-    </div>
-);
+        );
+    };
+
+    if (steps.length === 0) return null;
+
+    return shouldVirtualize ? (
+        <VirtualizedList
+            itemCount={steps.length}
+            estimateHeight={260}
+            maxHeight={560}
+            className="w-full pr-1"
+            renderItem={renderStep}
+        />
+    ) : (
+        <div className="space-y-4">
+            {steps.map((_, index) => renderStep(index))}
+        </div>
+    );
+};

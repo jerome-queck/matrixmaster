@@ -52,7 +52,7 @@ const renderRowSteps = (steps: CalculationResult['gaussJordanSteps'], systemType
         {steps.map((step, index) => (
             <div key={`step-${index}`} className="report-step">
                 <LatexRenderer latex={step.operation} displayMode={false} />
-                {includeNotes && step.description && <p className="text-xs text-gray-500">{step.description}</p>}
+                {includeNotes && step.description && <p className="text-xs text-secondary">{step.description}</p>}
                 {step.matrix && includeMatrices && (
                     <LatexBlock latex={systemType === 'homogeneous' ? formatMatrixToLatex(step.matrix) : formatAugmentedMatrixToLatex(step.matrix, systemType, 1)} />
                 )}
@@ -66,7 +66,7 @@ const renderMatrixSteps = (steps: MatrixOperationsResult['steps'], includeMatric
         {steps.map((step, index) => (
             <div key={`op-step-${index}`} className="report-step">
                 <LatexRenderer latex={step.operation} displayMode={false} />
-                {includeNotes && step.details && <p className="text-xs text-gray-500">Includes multiplication details.</p>}
+                {includeNotes && step.details && <p className="text-xs text-secondary">Includes multiplication details.</p>}
                 {includeMatrices && <LatexBlock latex={formatMatrixToLatex(step.result)} />}
             </div>
         ))}
