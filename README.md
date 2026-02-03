@@ -1,39 +1,78 @@
-# matrixmaster
+# Matrix Master
 
-Offline-first linear algebra workspace with symbolic and numeric tools, including worker-based computation, command palette shortcuts, matrix functions, iterative solvers, practice mode, and project versions.
+Offline-first linear algebra workspace for numeric and symbolic computation. Designed to run fully offline with local storage, exports, and desktop packaging.
 
-## Desktop App
+## Highlights
+- System solver with step-by-step elimination
+- Matrix operations, determinant of operation, and analysis tools
+- Iterative solvers (Jacobi, GS, CG, GMRES)
+- Symbolic simplifier with rule-by-rule output
+- Practice mode, command palette, and project versions
+- Export to CSV/JSON/LaTeX and clipboard copy
+- Desktop apps for macOS and Windows (Electron)
 
-Matrix Master can be packaged as a downloadable desktop app (macOS + Windows) using Electron.
+## Requirements
+- Node.js 18+ (recommended)
+- npm
 
+## Quick Start (Web)
+```bash
+npm install
+npm run dev
+```
+Open the dev URL printed by Vite.
+
+## Desktop App (Electron)
 ### Development
-
 ```bash
 npm run electron:dev
 ```
 
-### Build (packager)
-
+### Build (packaged installers)
 ```bash
 npm run electron:dist
 ```
+Artifacts are written to `dist/`.
 
-The packaged installers will be published via GitHub Releases when you run the dist step with proper credentials.
-
-## Desktop App
-
-Matrix Master can be packaged as a downloadable desktop app (macOS + Windows) using Electron.
-
-### Development
-
+### Windows build (from macOS)
 ```bash
-npm run electron:dev
+npx electron-builder --win --x64 --publish=never
 ```
 
-### Build (packager)
+## Scripts
+- `npm run dev` — Vite dev server
+- `npm run build` — production web build
+- `npm run preview` — preview web build
+- `npm test` — calculation tests
+- `npm run electron:dev` — Electron dev (Vite + main process)
+- `npm run electron:dist` — packaged desktop installers
 
-```bash
-npm run electron:dist
-```
+## Export / Import
+- Export matrices as CSV or LaTeX
+- Copy matrices to clipboard as CSV/LaTeX/JSON
+- Export full app state as JSON or share file (`.mmatrix`)
+- Import CSV/TSV/LaTeX into a selected matrix target
 
-The packaged installers will be published via GitHub Releases when you run the dist step with proper credentials.
+## Updates (Desktop)
+- Auto-updates are wired to GitHub Releases
+- Settings shows current version, latest version, and update status
+- Manual controls: check, download, restart to apply
+- Toast appears when an update is available
+
+## Project Structure
+- `App.tsx` — main UI and orchestration
+- `components/` — UI building blocks
+- `services/` — math + operations
+- `tests/` — calculation tests
+- `electron/` — Electron main/preload
+
+## Offline Behavior
+All calculations and exports run locally. The only network call in desktop builds is the optional update check against GitHub Releases.
+
+## Troubleshooting
+- macOS builds are unsigned; Gatekeeper may warn on first launch.
+- Windows builds are unsigned; SmartScreen may warn on first launch.
+- If exports appear empty, allow file downloads in your browser.
+
+## License
+TBD

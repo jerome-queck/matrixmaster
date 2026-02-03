@@ -210,8 +210,17 @@ const DetailsToggleButton: React.FC<{
 };
 
 // A robust wrapper for making LaTeX content scrollable
-const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean}> = ({ latex, displayMode = true, rowClassProvider, lazy }) => (
-    <div className="overflow-x-auto w-full p-2 flex justify-center">
+const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true }) => (
+    <div className="overflow-x-auto w-full p-2 flex justify-center relative">
+      {showCopy && (
+        <button
+          className="absolute right-2 top-2 px-2 py-1 rounded-md text-xs glass-btn"
+          onClick={() => navigator.clipboard.writeText(latex)}
+          aria-label="Copy LaTeX"
+        >
+          Copy LaTeX
+        </button>
+      )}
       <div className="min-w-max">
         <LatexRenderer latex={latex} displayMode={displayMode} rowClassProvider={rowClassProvider} lazy={lazy} />
       </div>

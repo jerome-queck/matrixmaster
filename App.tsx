@@ -227,6 +227,7 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
     const [shareButtonText, setShareButtonText] = useState('Share File');
+    const [isShareOpen, setShareOpen] = useState(false);
     const [resultsKey, setResultsKey] = useState<number>(Date.now());
     const detailCacheRef = useRef<Map<string, { determinant?: DeterminantResult; inverse?: InverseResult }>>(new Map());
     const keyCounter = useRef(0);
@@ -316,6 +317,9 @@ const App: React.FC = () => {
     const [compareRightKey, setCompareRightKey] = useState('analysis');
     const [theme, setTheme] = useState('dark');
     const [appVersion, setAppVersion] = useState<string>('Web');
+    const [latestVersion, setLatestVersion] = useState<string | null>(null);
+    const [updateStatus, setUpdateStatus] = useState<{ state: string; percent?: number; message?: string; version?: string }>({ state: 'idle' });
+    const [updateToastVisible, setUpdateToastVisible] = useState(false);
     const [density, setDensity] = useState('comfortable');
     const [fontSize, setFontSize] = useState<FontSize>('medium');
     const [customThemeColors, setCustomThemeColors] = useState<CustomThemeColors>(defaultCustomColors);
@@ -613,6 +617,38 @@ const App: React.FC = () => {
                 .catch(() => setAppVersion('Desktop'));
         }
     }, []);
+
+    useEffect(() => {
+        if (!window.electronAPI?.onUpdateStatus) return;
+        const unsubscribe = window.electronAPI.onUpdateStatus((payload: any) => {
+            setUpdateStatus(payload || { state: 'idle' });
+            if (payload?.version) setLatestVersion(payload.version);
+        });
+        return () => {
+            if (unsubscribe) unsubscribe();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (updateStatus.state === 'available' || updateStatus.state === 'ready') {
+            setUpdateToastVisible(true);
+            const timer = setTimeout(() => setUpdateToastVisible(false), 10000);
+            return () => clearTimeout(timer);
+        }
+        return;
+    }, [updateStatus.state]);
+
+    const handleCheckForUpdates = () => {
+        window.electronAPI?.checkForUpdates?.().catch(() => undefined);
+    };
+
+    const handleDownloadUpdate = () => {
+        window.electronAPI?.downloadUpdate?.().catch(() => undefined);
+    };
+
+    const handleInstallUpdate = () => {
+        window.electronAPI?.installUpdate?.().catch(() => undefined);
+    };
 
     useEffect(() => {
         const handleAfterPrint = () => setPrintMode('none');
@@ -1153,6 +1189,25 @@ const App: React.FC = () => {
         applySharedState(entry.state);
     };
 
+    const formatUpdateStatus = (status: { state: string; percent?: number; message?: string; version?: string }) => {
+        switch (status.state) {
+            case 'checking':
+                return 'Checking for updates...';
+            case 'available':
+                return status.version ? `Update available (${status.version})` : 'Update available';
+            case 'downloading':
+                return typeof status.percent === 'number' ? `Downloading ${status.percent.toFixed(0)}%` : 'Downloading update...';
+            case 'ready':
+                return 'Update ready — restart to apply';
+            case 'up-to-date':
+                return 'Up to date';
+            case 'error':
+                return status.message || 'Update error';
+            default:
+                return 'Idle';
+        }
+    };
+
     const handleCompareSteps = async (file: File) => {
         if (!results || !('gaussJordanSteps' in results)) {
             setStepCompareResult('No solver steps available.');
@@ -1630,6 +1685,18 @@ const App: React.FC = () => {
         URL.revokeObjectURL(url);
     };
 
+    const buildMatrixLatex = (key: string) => {
+        const matrix = resolveMatrixByKey(key);
+        if (!matrix) throw new Error("Matrix not found.");
+        if (matrixHasNull(matrix)) throw new Error("Fill all cells in the selected matrix before exporting.");
+        try {
+            const numeric = toNumericMatrix(matrix as ValidMatrix);
+            return formatNumericMatrixToLatex(numeric, numberFormat);
+        } catch {
+            return formatMatrixToLatex(matrix as ValidMatrix);
+        }
+    };
+
     const exportMatrixAsCsv = (key: string) => {
         const matrix = resolveMatrixByKey(key);
         if (!matrix) throw new Error("Matrix not found.");
@@ -1645,17 +1712,13 @@ const App: React.FC = () => {
     };
 
     const exportMatrixAsLatex = (key: string) => {
-        const matrix = resolveMatrixByKey(key);
-        if (!matrix) throw new Error("Matrix not found.");
-        if (matrixHasNull(matrix)) throw new Error("Fill all cells in the selected matrix before exporting.");
-        let latex = '';
-        try {
-            const numeric = toNumericMatrix(matrix as ValidMatrix);
-            latex = formatNumericMatrixToLatex(numeric, numberFormat);
-        } catch {
-            latex = formatMatrixToLatex(matrix as ValidMatrix);
-        }
+        const latex = buildMatrixLatex(key);
         downloadFile(`matrix-${key}.tex`, latex, 'text/plain');
+    };
+
+    const copyMatrixLatex = async (key: string) => {
+        const latex = buildMatrixLatex(key);
+        await navigator.clipboard.writeText(latex);
     };
 
     const copyMatrixToClipboard = async () => {
@@ -1672,12 +1735,7 @@ const App: React.FC = () => {
                 payload = matrix.map(row => row.map(cell => stringifySymbolicFraction(cell)).join(',')).join('\n');
             }
         } else if (clipboardFormat === 'latex') {
-            try {
-                const numeric = toNumericMatrix(matrix as ValidMatrix);
-                payload = formatNumericMatrixToLatex(numeric, numberFormat);
-            } catch {
-                payload = formatMatrixToLatex(matrix as ValidMatrix);
-            }
+            payload = buildMatrixLatex(clipboardTarget);
         } else {
             payload = JSON.stringify(matrix.map(row => row.map(cell => stringifySymbolicFraction(cell))));
         }
@@ -1986,15 +2044,20 @@ const App: React.FC = () => {
         downloadFile('batch-report.json', JSON.stringify(payload, null, 2), 'application/json');
     };
 
-    const exportStepsBundle = () => {
+    const buildStepsBundle = () => {
         if (!results) {
             setError('No results to export.');
-            return;
+            return null;
         }
 
         const sections: { title: string; blocks: string[] }[] = [];
         const addSection = (title: string, blocks: string[]) => {
             if (blocks.length > 0) sections.push({ title, blocks });
+        };
+        const escapeTexText = (input: string) => input.replace(/[&%$#_{}]/g, (m) => `\\${m}`);
+        const formatOpLatex = (op: string) => {
+            const looksLikeLatex = /[\\_^{}]/.test(op);
+            return looksLikeLatex ? op : `\\text{${escapeTexText(op)}}`;
         };
 
         if (results && 'systemType' in results) {
@@ -2003,52 +2066,62 @@ const App: React.FC = () => {
             const steps = systemResult.gaussJordanSteps.map(step => {
                 const op = step.operation || 'Step';
                 const matrix = step.matrix ? formatter(step.matrix) : '';
-                return `${op}\n${matrix ? `\\[${matrix}\\]` : ''}`.trim();
+                return matrix ? `${formatOpLatex(op)}\\\\${matrix}` : formatOpLatex(op);
             });
             addSection('System Solver Steps', steps);
-            if (systemResult.determinant) addSection('Determinant', [`\\[\\det(A) = ${formatSymbolicFractionToLatex(systemResult.determinant.value)}\\]`]);
-            if (systemResult.inverse?.inverseMatrix) addSection('Inverse', [`\\[A^{-1} = ${formatMatrixToLatex(systemResult.inverse.inverseMatrix)}\\]`]);
+            if (systemResult.determinant) addSection('Determinant', [`\\det(A) = ${formatSymbolicFractionToLatex(systemResult.determinant.value)}`]);
+            if (systemResult.inverse?.inverseMatrix) addSection('Inverse', [`A^{-1} = ${formatMatrixToLatex(systemResult.inverse.inverseMatrix)}`]);
         } else if ('finalResult' in results) {
             const opsResult = results as MatrixOperationsResult;
-            const steps = opsResult.steps.map(step => `${step.operation}\n\\[${formatMatrixToLatex(step.result)}\\]`);
+            const steps = opsResult.steps.map(step => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
             addSection('Matrix Operation Steps', steps);
         } else if ('operationResult' in results) {
             const detOps = results as DeterminantOfOperationResult;
-            const steps = detOps.operationResult.steps.map(step => `${step.operation}\n\\[${formatMatrixToLatex(step.result)}\\]`);
+            const steps = detOps.operationResult.steps.map(step => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
             addSection('Operation Steps', steps);
-            addSection('Determinant', [`\\[\\det(A) = ${formatSymbolicFractionToLatex(detOps.determinant.value)}\\]`]);
+            addSection('Determinant', [`\\det(A) = ${formatSymbolicFractionToLatex(detOps.determinant.value)}`]);
         } else if ('kind' in results && results.kind === 'analysis') {
             const analysis = results as MatrixAnalysisResult;
-            const blocks = [`Rank: ${analysis.rank}`];
+            const blocks = [`\\text{Rank: } ${analysis.rank}`];
             if (analysis.trace !== undefined) {
                 const traceLatex = analysis.mode === 'numeric' ? formatNumberToLatex(analysis.trace, numberFormat) : formatSymbolicFractionToLatex(analysis.trace);
-                blocks.push(`\\[\\operatorname{tr}(A) = ${traceLatex}\\]`);
+                blocks.push(`\\operatorname{tr}(A) = ${traceLatex}`);
             }
             addSection('Analysis Summary', blocks);
         }
 
-        const md = sections.map(section => `## ${section.title}\n\n${section.blocks.map(block => block.includes('\\[') ? block.replace(/\\\[/g, '$$').replace(/\\\]/g, '$$') : block).join('\n\n')}`).join('\n\n');
-        const texBody = sections.map(section => `\\section*{${section.title}}\n${section.blocks.join('\n\n')}`).join('\n\n');
-        const tex = `\\\\documentclass{article}\n\\\\usepackage{amsmath}\n\\\\usepackage{amssymb}\n\\\\usepackage[margin=1in]{geometry}\n\\\\begin{document}\n${texBody}\n\\\\end{document}\n`;
+        const md = sections.map(section => `## ${section.title}\n\n${section.blocks.map(block => `$$${block}$$`).join('\n\n')}`).join('\n\n');
+        const texBody = sections.map(section => `\\section*{${section.title}}\n${section.blocks.map(block => `\\[\n${block}\n\\]`).join('\n\n')}`).join('\n\n');
+        const texDoc = `\\documentclass{article}\n\\usepackage{amsmath}\n\\usepackage{amssymb}\n\\usepackage[margin=1in]{geometry}\n\\begin{document}\n${texBody}\n\\end{document}\n`;
+        const latexBlock = sections
+            .map(section => `% ${section.title}\n${section.blocks.map(block => `\\[\n${block}\n\\]`).join('\n\n')}`)
+            .join('\n\n');
 
-        downloadFile('matrix-steps.md', md, 'text/markdown');
-        downloadFile('matrix-steps.tex', tex, 'text/plain');
+        return { md, texDoc, latexBlock };
+    };
+
+    const exportStepsBundle = () => {
+        const bundle = buildStepsBundle();
+        if (!bundle) return;
+        downloadFile('matrix-steps.md', bundle.md, 'text/markdown');
+        downloadFile('matrix-steps.tex', bundle.texDoc, 'text/plain');
+    };
+
+    const exportStepsLatexFile = () => {
+        const bundle = buildStepsBundle();
+        if (!bundle) return;
+        downloadFile('matrix-steps.tex', bundle.texDoc, 'text/plain');
+    };
+
+    const copyStepsLatex = async () => {
+        const bundle = buildStepsBundle();
+        if (!bundle) return;
+        await navigator.clipboard.writeText(bundle.latexBlock);
     };
 
     // --- Universal Handlers ---
     const handleShare = () => {
-        try {
-            exportStateAsJson(true);
-            setShareButtonText('Downloaded!');
-            setTimeout(() => setShareButtonText('Share File'), 2000);
-        } catch (e) {
-            console.error("Failed to create share file:", e);
-            if (e instanceof Error) {
-                setError(`Error creating share file: ${e.message}`);
-            } else {
-                setError("An unknown error occurred while creating the share file.");
-            }
-        }
+        setShareOpen(true);
     };
 
     async function handleCalculate() {
@@ -2740,6 +2813,29 @@ const App: React.FC = () => {
                         <button onClick={() => setSettingsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open settings"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
                     </div>
                 </header>
+                {(updateStatus.state === 'available' || updateStatus.state === 'ready') && updateToastVisible && (
+                    <div className="no-print fixed top-5 right-5 z-50">
+                        <div className="glass-panel rounded-xl px-4 py-3 flex items-start gap-3 border border-[var(--glass-border)] shadow-lg max-w-sm">
+                            <div className="flex-1 text-sm text-secondary">
+                                <div className="font-semibold text-ink">Update available</div>
+                                <div>
+                                    {updateStatus.state === 'ready'
+                                        ? 'Update downloaded. Restart to apply.'
+                                        : (latestVersion ? `Version ${latestVersion} is ready to download.` : 'A new version is ready to download.')}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {updateStatus.state === 'available' && (
+                                    <button onClick={handleDownloadUpdate} className="px-2 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs">Download</button>
+                                )}
+                                {updateStatus.state === 'ready' && (
+                                    <button onClick={handleInstallUpdate} className="px-2 py-1 rounded-lg bg-green-600 text-white hover:bg-green-700 text-xs">Restart</button>
+                                )}
+                                <button onClick={() => setUpdateToastVisible(false)} className="px-2 py-1 rounded-lg glass-btn text-xs">Dismiss</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="no-print mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button onClick={() => setCommandOpen(true)} className="ios-action-card">
@@ -2953,6 +3049,7 @@ const App: React.FC = () => {
                         <div className="flex gap-2">
                             <button onClick={() => { try { exportMatrixAsCsv(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export CSV</button>
                             <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy LaTeX</button>
                         </div>
                     </div>
                     <div className="space-y-2">
@@ -2988,6 +3085,14 @@ const App: React.FC = () => {
                             <button onClick={() => exportStateAsJson(false)} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
                             <button onClick={() => exportStateAsJson(true)} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
                         </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Share Matrix LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={exportStepsLatexFile} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
+                            <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
+                        </div>
                     </div>
 
                     <div className="space-y-2">
@@ -3000,6 +3105,29 @@ const App: React.FC = () => {
                         </select>
                         <input type="file" accept=".json,.mmatrix,.csv,.tsv,.tex" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await handleImportFile(file); setExportModalOpen(false); } catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); } finally { e.currentTarget.value = ''; } }} className="block w-full text-sm text-secondary" />
                         <p className="text-xs text-secondary">CSV/TSV/LaTeX imports into the selected matrix target. JSON/mmatrix restores full app state.</p>
+                    </div>
+                </div>
+            </Modal>
+            <Modal title="Share" isOpen={isShareOpen} onClose={() => setShareOpen(false)}>
+                <div className="space-y-4">
+                    <p className="text-sm text-secondary">Share files and LaTeX exports from the current workspace.</p>
+                    <div className="flex gap-2">
+                        <button onClick={() => { try { exportStateAsJson(true); setShareOpen(false); setShareButtonText('Downloaded!'); setTimeout(() => setShareButtonText('Share File'), 2000); } catch (e) { setError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
+                        <button onClick={() => { try { exportStateAsJson(false); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm text-secondary">Matrix Target</label>
+                        <select value={exportMatrixKey} onChange={e => setExportMatrixKey(e.target.value)} className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            {getMatrixOptions().map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                        </select>
+                        <div className="flex gap-2">
+                            <button onClick={() => { try { exportMatrixAsLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Matrix LaTeX</button>
+                            <button onClick={async () => { try { await copyMatrixLatex(exportMatrixKey); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Matrix LaTeX</button>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={exportStepsLatexFile} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export Steps LaTeX</button>
+                        <button onClick={async () => { try { await copyStepsLatex(); } catch (e) { setError(e instanceof Error ? e.message : 'Copy failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Copy Steps LaTeX</button>
                     </div>
                 </div>
             </Modal>
@@ -3738,9 +3866,35 @@ const App: React.FC = () => {
                     )}
                     <div><label className="font-medium text-secondary">Display Density</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setDensity('comfortable')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'comfortable' ? 'tab active' : ''}`}>Comfortable</button><button onClick={() => setDensity('compact')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'compact' ? 'tab active' : ''}`}>Compact</button></div></div>
                     <div><label className="font-medium text-secondary">Font Size</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setFontSize('small')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'small' ? 'tab active' : ''}`}>Small</button><button onClick={() => setFontSize('medium')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'medium' ? 'tab active' : ''}`}>Medium</button><button onClick={() => setFontSize('large')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'large' ? 'tab active' : ''}`}>Large</button></div></div>
-                    <div className="flex items-center justify-between text-sm text-secondary">
-                        <span>App Version</span>
-                        <span className="text-ink">{appVersion}</span>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm text-secondary">
+                            <span>App Version</span>
+                            <span className="text-ink">{appVersion}</span>
+                        </div>
+                        {latestVersion && (
+                            <div className="flex items-center justify-between text-sm text-secondary">
+                                <span>Latest Version</span>
+                                <span className="text-ink">{latestVersion}</span>
+                            </div>
+                        )}
+                        <div className="flex items-center justify-between text-sm text-secondary">
+                            <span>Update Status</span>
+                            <span className="text-ink">{formatUpdateStatus(updateStatus)}</span>
+                        </div>
+                        {updateStatus.state === 'downloading' && typeof updateStatus.percent === 'number' && (
+                            <div className="h-2 rounded-full bg-[var(--glass-border)] overflow-hidden">
+                                <div className="h-full bg-[var(--accent-1)]" style={{ width: `${Math.max(2, Math.min(100, updateStatus.percent))}%` }} />
+                            </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={handleCheckForUpdates} className="px-3 py-2 rounded-lg glass-btn text-sm">Check for Updates</button>
+                            {updateStatus.state === 'available' && (
+                                <button onClick={handleDownloadUpdate} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Download Update</button>
+                            )}
+                            {updateStatus.state === 'ready' && (
+                                <button onClick={handleInstallUpdate} className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm">Restart to Update</button>
+                            )}
+                        </div>
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
