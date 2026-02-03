@@ -934,6 +934,13 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         const initialSize = initialMatrix?.[0]?.length ?? 0;
         return Math.max(initialSize, ...sizes);
     }, [actualSteps, initialMatrix]);
+
+    const shouldCollapseSteps = actualSteps.length > 40 || maxMatrixRows > LARGE_MATRIX_THRESHOLD || maxMatrixCols > LARGE_MATRIX_THRESHOLD;
+    const [stepsCollapsed, setStepsCollapsed] = React.useState(shouldCollapseSteps);
+
+    React.useEffect(() => {
+        setStepsCollapsed(shouldCollapseSteps);
+    }, [shouldCollapseSteps]);
     
     const rowHasChanged = (rowA: SymbolicFraction[], rowB: SymbolicFraction[]) => {
         if (rowA.length !== rowB.length) return true;
@@ -1088,6 +1095,20 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         );
     };
 
+    if (stepsCollapsed) {
+        return (
+            <div className="flex flex-col items-center space-y-3">
+                <div className="glass-panel rounded-2xl p-4 text-center w-full">
+                    <div className="text-secondary">Steps are hidden to keep large matrices responsive.</div>
+                    <div className="text-xs text-secondary mt-1">{actualSteps.length} steps available.</div>
+                </div>
+                <button onClick={() => setStepsCollapsed(false)} className="px-3 py-2 rounded-lg glass-btn text-sm">
+                    Show Steps
+                </button>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col items-center space-y-4">
              <div className="flex self-end items-center text-sm flex-wrap gap-2">
@@ -1098,6 +1119,11 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                     <button onClick={() => setViewMode('timeline')} className={`px-2 py-1 rounded-xl transition-colors text-xs glass-tab ${viewMode==='timeline' ? 'tab active' : ''}`}>Timeline</button>
                 </div>
                 <button onClick={() => setHighlightDiff(prev => !prev)} className={`px-2 py-1 rounded-xl text-xs ${highlightDiff ? 'glass-btn-primary' : 'glass-btn'}`}>{highlightDiff ? 'Diff On' : 'Diff Off'}</button>
+                {shouldCollapseSteps && (
+                    <button onClick={() => setStepsCollapsed(true)} className="px-2 py-1 rounded-xl text-xs glass-btn">
+                        Hide Steps
+                    </button>
+                )}
                 {onInfo && (
                     <button
                         type="button"

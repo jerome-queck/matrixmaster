@@ -27,7 +27,8 @@ import type {
 import { createLruCache } from './lru';
 
 const RESULT_CACHE_LIMIT = 75;
-const resultCache = createLruCache<MatrixWorkerResponse['result']>(RESULT_CACHE_LIMIT);
+const RESULT_CACHE_TTL_MS = 10 * 60 * 1000;
+const resultCache = createLruCache<{ value: MatrixWorkerResponse['result']; timestamp: number }>(RESULT_CACHE_LIMIT);
 
 const buildAnalysisResult = (
     matrix: ValidMatrix,
@@ -140,9 +141,12 @@ self.onmessage = (event: MessageEvent<MatrixWorkerRequest>) => {
     if (cacheKey) {
         const cached = resultCache.get(cacheKey);
         if (cached !== undefined) {
-            const response: MatrixWorkerResponse = { ...baseResponse, ok: true, result: cached };
-            self.postMessage(response);
-            return;
+            if (Date.now() - cached.timestamp <= RESULT_CACHE_TTL_MS) {
+                const response: MatrixWorkerResponse = { ...baseResponse, ok: true, result: cached.value };
+                self.postMessage(response);
+                return;
+            }
+            resultCache.remove(cacheKey);
         }
     }
 
@@ -177,7 +181,7 @@ self.onmessage = (event: MessageEvent<MatrixWorkerRequest>) => {
         }
 
         if (cacheKey) {
-            resultCache.set(cacheKey, result);
+            resultCache.set(cacheKey, { value: result, timestamp: Date.now() });
         }
 
         const response: MatrixWorkerResponse = { ...baseResponse, ok: true, result };
