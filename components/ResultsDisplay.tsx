@@ -3,6 +3,8 @@ import React from 'react';
 import type { CalculationResult, RowOperationStep, DeterminantRowOpStep, ValidMatrix, SolutionResult, NullSpaceResult, SymbolicFraction, InverseResult, CramersRuleResult, AdjointMethodResult, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, DeterminantResult, MatrixMultiplicationDetail, CofactorStep, SystemType, MatrixAnalysisResult, NumberFormatOptions, VariableAssumption, Matrix } from '../types';
 import { LatexRenderer } from './LatexRenderer';
 import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex, symbolicFractionToNumber, toNumericMatrix, numericConditionNumber, numericTrace, addSF, multiplySF } from '../services/matrixService';
+import { hashMatrix, hashNumericMatrix } from '../services/hash';
+import { createLruCache } from '../services/lru';
 
 type AllResultTypes = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
 
@@ -28,12 +30,39 @@ interface SharedDisplayProps extends ResultsDisplayProps {
     handleRequestAndShowDetails: (section: string, payload?: any) => void;
     toggleDetailsVisibility: (section: string, forceCollapse?: boolean) => void;
     collapsedSections: Record<string, boolean>;
+    formatMatrixCached: (matrix: ValidMatrix) => string;
+    formatNumericMatrixCached: (matrix: number[][], numberFormat?: NumberFormatOptions) => string;
 }
 
 const isSystemSolverResult = (res: AllResultTypes): res is CalculationResult => 'systemType' in res;
 const isMatrixOpsResult = (res: AllResultTypes): res is MatrixOperationsResult => 'finalResult' in res;
 const isDeterminantOfOpsResult = (res: AllResultTypes): res is DeterminantOfOperationResult => 'operationResult' in res;
 const isAnalysisResult = (res: AllResultTypes): res is MatrixAnalysisResult => 'kind' in res && res.kind === 'analysis';
+
+const useLatexCache = () => {
+    const matrixCacheRef = React.useRef(createLruCache<string>(200));
+    const numericCacheRef = React.useRef(createLruCache<string>(200));
+
+    const formatMatrixCached = React.useCallback((matrix: ValidMatrix) => {
+        const key = hashMatrix(matrix);
+        const cached = matrixCacheRef.current.get(key);
+        if (cached) return cached;
+        const latex = formatMatrixToLatex(matrix);
+        matrixCacheRef.current.set(key, latex);
+        return latex;
+    }, []);
+
+    const formatNumericMatrixCached = React.useCallback((matrix: number[][], numberFormat?: NumberFormatOptions) => {
+        const key = `${hashNumericMatrix(matrix)}|${numberFormat?.mode ?? ''}|${numberFormat?.digits ?? ''}|${numberFormat?.fractionMaxDenominator ?? ''}`;
+        const cached = numericCacheRef.current.get(key);
+        if (cached) return cached;
+        const latex = formatNumericMatrixToLatex(matrix, numberFormat);
+        numericCacheRef.current.set(key, latex);
+        return latex;
+    }, []);
+
+    return { formatMatrixCached, formatNumericMatrixCached };
+};
 
 const SummaryBar: React.FC<{ results: AllResultTypes; numberFormat?: NumberFormatOptions }> = ({ results, numberFormat }) => {
     const items: { label: string; content: React.ReactNode }[] = [];
@@ -141,23 +170,27 @@ const VirtualizedList: React.FC<{
 
 const ResultSection: React.FC<{ title: string; isOpen: boolean; onToggle: () => void; children: React.ReactNode; isNested?: boolean; onExplain?: (topic: string) => void }> = ({ title, isOpen, onToggle, children, isNested, onExplain }) => (
     <div className={`${isNested ? 'glass-panel rounded-2xl' : 'glass-card rounded-2xl'}`}>
-        <button onClick={onToggle} className={`w-full p-4 text-left flex justify-between items-center transition-colors ${isNested ? 'hover:bg-white/10 rounded-2xl' : 'hover:bg-white/10'} ${isOpen ? (isNested ? '' : 'rounded-t-2xl') : 'rounded-2xl'}`}>
-            <div className="min-w-0 flex-1 flex items-center gap-2">
+        <div className={`w-full p-4 flex items-center gap-2 transition-colors ${isNested ? 'hover:bg-white/10 rounded-2xl' : 'hover:bg-white/10'} ${isOpen ? (isNested ? '' : 'rounded-t-2xl') : 'rounded-2xl'}`}>
+            <button
+                onClick={onToggle}
+                aria-expanded={isOpen}
+                className="min-w-0 flex-1 flex items-center justify-between text-left"
+            >
                 <h2 className="text-xl font-semibold break-words w-full text-left pr-4 text-ink">{title}</h2>
-                {onExplain && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onExplain(title); }}
-                        className="p-1 rounded-full text-secondary hover:bg-white/10 transition-colors flex-shrink-0"
-                        aria-label={`Explain ${title}`}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                )}
-            </div>
-            <svg className={`w-6 h-6 transform transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-        </button>
+                <svg className={`w-6 h-6 transform transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {onExplain && (
+                <button
+                    onClick={() => onExplain(title)}
+                    className="p-1 rounded-full text-secondary hover:bg-white/10 transition-colors flex-shrink-0"
+                    aria-label={`Explain ${title}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            )}
+        </div>
         <div className={`accordion-content ${isOpen ? 'open' : ''}`}>
             <div className="min-w-0">
                 <div className={`p-4 ${isNested ? '' : 'border-t border-white/10'}`}>
@@ -272,6 +305,7 @@ const UserAssumptionsDisplay: React.FC<{ assumptions: VariableAssumption[] }> = 
 );
 
 const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMatrix: ValidMatrix | null; numberFormat?: NumberFormatOptions }> = ({ result, analysisMatrix, numberFormat }) => {
+    const { formatMatrixCached, formatNumericMatrixCached } = useLatexCache();
     const vectorToLatex = (values: number[]) => `\\begin{bmatrix} ${values.map(v => formatNumberToLatex(v, numberFormat)).join(' \\\\ ')} \\end{bmatrix}`;
     const [localOpen, setLocalOpen] = React.useState<Record<string, boolean>>({});
     const isOpen = (section: string) => localOpen[section] !== false;
@@ -303,7 +337,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
         <div className="space-y-4">
             {analysisMatrix && (
                 <ResultSection title="Input Matrix" isOpen={isOpen("Input Matrix")} onToggle={() => toggleSection("Input Matrix")}>
-                    <ScrollableLatex latex={formatMatrixToLatex(analysisMatrix)} />
+                    <ScrollableLatex latex={formatMatrixCached(analysisMatrix)} />
                 </ResultSection>
             )}
             <ResultSection title="Summary" isOpen={isOpen("Summary")} onToggle={() => toggleSection("Summary")}>
@@ -351,7 +385,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                         {showRounding && (
                             <div>
                                 <div className="text-xs text-secondary mb-1">Rounded matrix (by number format)</div>
-                                <LatexRenderer latex={formatNumericMatrixToLatex(numericMatrix.map(row => row.map(v => {
+                                <LatexRenderer latex={formatNumericMatrixCached(numericMatrix.map(row => row.map(v => {
                                     const digits = numberFormat?.digits ?? 6;
                                     const factor = Math.pow(10, digits);
                                     return Math.round(v * factor) / factor;
@@ -366,9 +400,9 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="LU Decomposition" isOpen={isOpen("LU Decomposition")} onToggle={() => toggleSection("LU Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">Permutation matrix P, lower L, and upper U such that P·A = L·U.</p>
-                        <ScrollableLatex latex={`P = ${formatNumericMatrixToLatex(result.lu.P, numberFormat)}`} />
-                        <ScrollableLatex latex={`L = ${formatNumericMatrixToLatex(result.lu.L, numberFormat)}`} />
-                        <ScrollableLatex latex={`U = ${formatNumericMatrixToLatex(result.lu.U, numberFormat)}`} />
+                        <ScrollableLatex latex={`P = ${formatNumericMatrixCached(result.lu.P, numberFormat)}`} />
+                        <ScrollableLatex latex={`L = ${formatNumericMatrixCached(result.lu.L, numberFormat)}`} />
+                        <ScrollableLatex latex={`U = ${formatNumericMatrixCached(result.lu.U, numberFormat)}`} />
                     </div>
                 </ResultSection>
             )}
@@ -377,8 +411,8 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="QR Decomposition" isOpen={isOpen("QR Decomposition")} onToggle={() => toggleSection("QR Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">Q has orthonormal columns, and A = Q·R.</p>
-                        <ScrollableLatex latex={`Q = ${formatNumericMatrixToLatex(result.qr.Q, numberFormat)}`} />
-                        <ScrollableLatex latex={`R = ${formatNumericMatrixToLatex(result.qr.R, numberFormat)}`} />
+                        <ScrollableLatex latex={`Q = ${formatNumericMatrixCached(result.qr.Q, numberFormat)}`} />
+                        <ScrollableLatex latex={`R = ${formatNumericMatrixCached(result.qr.R, numberFormat)}`} />
                     </div>
                 </ResultSection>
             )}
@@ -387,9 +421,9 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="Singular Value Decomposition" isOpen={isOpen("Singular Value Decomposition")} onToggle={() => toggleSection("Singular Value Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">A = U·S·Vᵀ (economy SVD).</p>
-                        <ScrollableLatex latex={`U = ${formatNumericMatrixToLatex(result.svd.U, numberFormat)}`} />
-                        <ScrollableLatex latex={`S = ${formatNumericMatrixToLatex(result.svd.S, numberFormat)}`} />
-                        <ScrollableLatex latex={`V^T = ${formatNumericMatrixToLatex(result.svd.Vt, numberFormat)}`} />
+                        <ScrollableLatex latex={`U = ${formatNumericMatrixCached(result.svd.U, numberFormat)}`} />
+                        <ScrollableLatex latex={`S = ${formatNumericMatrixCached(result.svd.S, numberFormat)}`} />
+                        <ScrollableLatex latex={`V^T = ${formatNumericMatrixCached(result.svd.Vt, numberFormat)}`} />
                         <div className="text-secondary text-sm">
                             <span className="font-semibold">Singular values:</span>{' '}
                             <LatexRenderer latex={vectorToLatex(result.svd.singularValues)} displayMode={false} />
@@ -409,7 +443,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                             <LatexRenderer latex={vectorToLatex(result.eigen.values)} displayMode={false} />
                         </div>
                         {result.eigen.vectors && (
-                            <ScrollableLatex latex={`V = ${formatNumericMatrixToLatex(result.eigen.vectors, numberFormat)}`} />
+                            <ScrollableLatex latex={`V = ${formatNumericMatrixCached(result.eigen.vectors, numberFormat)}`} />
                         )}
                         <div className="text-xs text-secondary">Iterations: {result.eigen.iterations} · {result.eigen.converged ? 'Converged' : 'Max iterations reached'}</div>
                     </div>
@@ -466,7 +500,7 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
     </ResultSection>
 )};
 
-const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, onToggleSection, openSections, onUseResult, handleRequestAndShowDetails, collapsedSections, toggleDetailsVisibility, loadingDetails }) => {
+const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, onToggleSection, openSections, onUseResult, handleRequestAndShowDetails, collapsedSections, toggleDetailsVisibility, loadingDetails, formatMatrixCached }) => {
     const [stepsOpen, setStepsOpen] = React.useState(true);
     const sectionNameForWorkings = (index: number) => `op-workings-${index}`;
 
@@ -483,7 +517,7 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                 <div className="flex flex-col items-center text-primary w-full">
                     <div className="mt-1 px-3 py-1 glass-panel rounded-md shadow-inner text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 </div>
-                <div className="glass-panel p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixToLatex(step.result)}`} /></div>
+                <div className="glass-panel p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixCached(step.result)}`} /></div>
                 
                 {detailsExist && (
                      <button
@@ -507,7 +541,7 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
             </div>
             )
         })}</div></ResultSection>
-        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={formatMatrixToLatex(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
+        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={formatMatrixCached(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
     </div>
 )};
 
@@ -615,6 +649,7 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
     const { results, onUseResult } = props;
     const [collapsedSections, setCollapsedSections] = React.useState<Record<string, boolean>>({});
     const assumptions = props.variableAssumptions || [];
+    const { formatMatrixCached, formatNumericMatrixCached } = useLatexCache();
 
     const constraintWarnings = React.useMemo(() => {
         if (assumptions.length === 0) return [];
@@ -661,7 +696,9 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
         ...props,
         collapsedSections,
         toggleDetailsVisibility,
-        handleRequestAndShowDetails
+        handleRequestAndShowDetails,
+        formatMatrixCached,
+        formatNumericMatrixCached
     };
 
     return (
@@ -793,7 +830,7 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
     const initialMatrix = isFirstStepAPlaceholder ? steps[0].matrix : steps[0].matrixBefore;
     const actualSteps = isFirstStepAPlaceholder ? steps.slice(1) : steps;
 
-    const matrixFormatter = (m: ValidMatrix) => isAugmented ? formatAugmentedMatrixToLatex(m, systemType, augmentedCols) : formatMatrixToLatex(m);
+    const matrixFormatter = (m: ValidMatrix) => isAugmented ? formatAugmentedMatrixToLatex(m, systemType, augmentedCols) : props.formatMatrixCached(m);
     
     const rowHasChanged = (rowA: SymbolicFraction[], rowB: SymbolicFraction[]) => {
         if (rowA.length !== rowB.length) return true;
@@ -1124,45 +1161,48 @@ const NullSpaceDisplay: React.FC<{ result: NullSpaceResult, sectionName: string 
     );
 };
 
-const AdjointMethodDetails: React.FC<{ result: AdjointMethodResult }> = ({ result }) => (
-    <div className="space-y-6">
-        {result.summaryMessage && <SummaryMessageDisplay message={result.summaryMessage} />}
-        {!result.summaryMessage && (
-            <>
-                <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">1. Calculate Determinant</h4></div>
-                    <ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(result.determinantOfA)}`} />
-                </div>
-                <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2. Find Matrix of Cofactors</h4></div>
-                    <ScrollableLatex latex={`C = ${formatMatrixToLatex(result.cofactorMatrix)}`} />
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-left">
-                        {result.cofactorSteps.map(step => <div key={step.position} className="p-2 glass-panel rounded"><ScrollableLatex latex={step.calculation} displayMode={true} /></div>)}
+const AdjointMethodDetails: React.FC<{ result: AdjointMethodResult }> = ({ result }) => {
+    const { formatMatrixCached } = useLatexCache();
+    return (
+        <div className="space-y-6">
+            {result.summaryMessage && <SummaryMessageDisplay message={result.summaryMessage} />}
+            {!result.summaryMessage && (
+                <>
+                    <div>
+                        <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">1. Calculate Determinant</h4></div>
+                        <ScrollableLatex latex={`\\det(A) = ${formatSymbolicFractionToLatex(result.determinantOfA)}`} />
                     </div>
-                </div>
-                <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">3. Find Adjoint (Adjugate) Matrix</h4></div>
-                    <p className="text-secondary mb-3 break-words">The adjoint is the transpose of the cofactor matrix.</p>
-                    <ScrollableLatex latex={`\\text{adj}(A) = C^T = ${formatMatrixToLatex(result.adjointMatrix)}`} />
-                </div>
-                <div>
-                    <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">4. Calculate Inverse</h4></div>
-                    <p className="text-secondary mb-3 break-words">The inverse is calculated using the formula A⁻¹ = (1/det(A)) * adj(A).</p>
-                    <ScrollableLatex latex={`A^{-1} = \\frac{1}{${formatSymbolicFractionToLatex(result.determinantOfA)}} ${formatMatrixToLatex(result.adjointMatrix)} = ${formatMatrixToLatex(result.inverseMatrix)}`} />
-                </div>
-            </>
-        )}
-    </div>
-);
+                    <div>
+                        <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2. Find Matrix of Cofactors</h4></div>
+                        <ScrollableLatex latex={`C = ${formatMatrixCached(result.cofactorMatrix)}`} />
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-left">
+                            {result.cofactorSteps.map(step => <div key={step.position} className="p-2 glass-panel rounded"><ScrollableLatex latex={step.calculation} displayMode={true} /></div>)}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">3. Find Adjoint (Adjugate) Matrix</h4></div>
+                        <p className="text-secondary mb-3 break-words">The adjoint is the transpose of the cofactor matrix.</p>
+                        <ScrollableLatex latex={`\\text{adj}(A) = C^T = ${formatMatrixCached(result.adjointMatrix)}`} />
+                    </div>
+                    <div>
+                        <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">4. Calculate Inverse</h4></div>
+                        <p className="text-secondary mb-3 break-words">The inverse is calculated using the formula A⁻¹ = (1/det(A)) * adj(A).</p>
+                        <ScrollableLatex latex={`A^{-1} = \\frac{1}{${formatSymbolicFractionToLatex(result.determinantOfA)}} ${formatMatrixCached(result.adjointMatrix)} = ${formatMatrixCached(result.inverseMatrix)}`} />
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
 
 const VerificationCheck: React.FC<{ titleLatex: string, details: MatrixMultiplicationDetail, workingsSectionName: string } & SharedDisplayProps> = 
-({ titleLatex, details, workingsSectionName, collapsedSections, toggleDetailsVisibility }) => {
+({ titleLatex, details, workingsSectionName, collapsedSections, toggleDetailsVisibility, formatMatrixCached }) => {
     const isWorkingsCollapsed = !!collapsedSections[workingsSectionName];
 
     return (
         <div>
             <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words"><LatexRenderer latex={titleLatex} /></h4></div>
-            <ScrollableLatex latex={formatMatrixToLatex(details.product)} />
+            <ScrollableLatex latex={formatMatrixCached(details.product)} />
             <button
                 onClick={() => toggleDetailsVisibility(workingsSectionName)}
                 className="mt-4 flex items-center justify-center bg-indigo-600/80 hover:bg-indigo-700/80 text-white font-bold py-2 px-4 rounded-lg transition-all text-sm"
@@ -1193,7 +1233,7 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
         <div className="space-y-4">
             <p className="text-secondary mb-2 font-semibold break-words">Final Inverse Matrix (A⁻¹):</p>
             <div className="p-4 glass-panel rounded-lg w-full mb-6">
-                {result.inverseMatrix ? <ScrollableLatex latex={formatMatrixToLatex(result.inverseMatrix)} /> : <p>Calculation not performed yet.</p>}
+                {result.inverseMatrix ? <ScrollableLatex latex={props.formatMatrixCached(result.inverseMatrix)} /> : <p>Calculation not performed yet.</p>}
             </div>
 
             <DetailsToggleButton 
@@ -1292,7 +1332,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                                 <div key={sol.variableName} className="space-y-2 pt-4">
                                     <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2.{i+1}. Solve for <LatexRenderer latex={sol.variableName} displayMode={false} /></h4></div>
                                     <p className="text-secondary break-words">Replace column {i+1} of A with the vector b to form A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
-                                    <ScrollableLatex latex={`A_{${sol.variableName.match(/\d+/)?.[0] || i+1}} = ${formatMatrixToLatex(sol.matrixAi)}`} />
+                                    <ScrollableLatex latex={`A_{${sol.variableName.match(/\d+/)?.[0] || i+1}} = ${props.formatMatrixCached(sol.matrixAi)}`} />
                                     <p className="text-secondary break-words">Calculate the determinant of A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
                                     <ScrollableLatex latex={`\\det(A_{${sol.variableName.match(/\d+/)?.[0] || i+1}}) = ${formatSymbolicFractionToLatex(sol.determinantOfAi)}`} />
                                     <ScrollableLatex latex={sol.finalCalculation} />
@@ -1307,6 +1347,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
 };
 
 const DeterminantRowOpsRenderer: React.FC<{ steps: DeterminantRowOpStep[] }> = ({ steps }) => {
+    const { formatMatrixCached } = useLatexCache();
     const shouldVirtualize = steps.length > 30;
     const renderStep = (index: number) => {
         const step = steps[index];
@@ -1315,9 +1356,9 @@ const DeterminantRowOpsRenderer: React.FC<{ steps: DeterminantRowOpStep[] }> = (
                 <div className="px-3 py-1 glass-panel rounded-md shadow-inner text-center mb-2 w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 <p className="text-sm text-secondary italic mb-3 break-words">{step.description}</p>
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixBefore)}`} lazy={shouldVirtualize} /></div>
+                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixCached(step.matrixBefore)}`} lazy={shouldVirtualize} /></div>
                     <div className="hidden md:block text-primary"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixToLatex(step.matrixAfter)}`} lazy={shouldVirtualize} /></div>
+                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixCached(step.matrixAfter)}`} lazy={shouldVirtualize} /></div>
                 </div>
             </div>
         );

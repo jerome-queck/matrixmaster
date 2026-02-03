@@ -29,9 +29,17 @@ const createWindow = () => {
   win.once('ready-to-show', () => win.show());
 
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file://') && !(isDev && url.startsWith(devServerUrl))) {
-      event.preventDefault();
+    try {
+      const target = new URL(url);
+      if (target.protocol === 'file:') return;
+      if (isDev) {
+        const devOrigin = new URL(devServerUrl).origin;
+        if (target.origin === devOrigin) return;
+      }
+    } catch {
+      // Fall through to prevent navigation on invalid URLs.
     }
+    event.preventDefault();
   });
 
   win.webContents.on('did-fail-load', (_event, code, desc, url) => {
@@ -51,7 +59,14 @@ const createWindow = () => {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url).catch(() => undefined);
+    try {
+      const target = new URL(url);
+      if (target.protocol === 'http:' || target.protocol === 'https:') {
+        shell.openExternal(url).catch(() => undefined);
+      }
+    } catch {
+      // Ignore invalid URLs.
+    }
     return { action: 'deny' };
   });
 

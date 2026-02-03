@@ -224,6 +224,7 @@ export type WorkerRequestType =
 export interface MatrixWorkerRequest {
     id: string;
     type: WorkerRequestType;
+    requestHash?: string;
     payload:
         | { matrix: ValidMatrix; systemType: SystemType }
         | { matrix: ValidMatrix; analysisMode: AnalysisMode; analysisOptions: { computeLU: boolean; computeQR: boolean; computeSVD: boolean; computeEigen: boolean } }
@@ -261,6 +262,13 @@ export interface SharedState {
     variableAssumptions?: VariableAssumption[];
 }
 
+export interface ProjectVersion {
+    id: string;
+    name: string;
+    createdAt: number;
+    state: SharedState;
+}
+
 // --- UI & Local Storage Types ---
 export interface SavedMatrix {
     id: string;
@@ -271,6 +279,35 @@ export interface SavedMatrix {
     tags?: string[];
     folder?: string;
     createdAt?: number;
+}
+
+export interface ExerciseItem {
+    prompt?: string;
+    solution?: number[];
+    [key: string]: unknown;
+}
+
+export interface ExercisePack {
+    id: string;
+    name?: string;
+    exercises: ExerciseItem[];
+}
+
+export interface PluginCommandAction {
+    type: 'setExpression' | 'setMode' | 'openTool';
+    value?: string;
+}
+
+export interface PluginCommand {
+    id: string;
+    label?: string;
+    action?: PluginCommandAction;
+}
+
+export interface Plugin {
+    id: string;
+    name?: string;
+    commands?: PluginCommand[];
 }
 
 export interface MatrixRecipe {

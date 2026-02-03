@@ -9,9 +9,10 @@ import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
 import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, numericConditionNumber, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
-import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult } from './types';
+import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
+import { useDelayedFlag } from './hooks/useDelayedFlag';
 
 type AllResultTypes = AnyResult;
 
@@ -261,6 +262,7 @@ const App: React.FC = () => {
     );
 
     const { runWorkerRequest } = useMatrixWorker();
+    const showComputeIndicator = useDelayedFlag(isLoading, 200);
 
     // System Solver State
     const [rows, setRows] = useState<number | ''>(3);
@@ -370,7 +372,7 @@ const App: React.FC = () => {
     const [blockKeys, setBlockKeys] = useState({ tl: 'A', tr: 'B', bl: 'C', br: 'D' });
     const [isSimplifierOpen, setSimplifierOpen] = useState(false);
     const [simplifyInput, setSimplifyInput] = useState('1/2');
-    const [simplifyTrace, setSimplifyTrace] = useState<any[]>([]);
+    const [simplifyTrace, setSimplifyTrace] = useState<SimplifyTraceStep[]>([]);
     const [simplifyOutput, setSimplifyOutput] = useState<string>('');
     const [isMatrixFunctionsOpen, setMatrixFunctionsOpen] = useState(false);
     const [matrixFuncTarget, setMatrixFuncTarget] = useState('analysis');
@@ -389,15 +391,15 @@ const App: React.FC = () => {
     const [iterativeResult, setIterativeResult] = useState<{ x: number[]; residuals: number[] } | null>(null);
     const [iterativeError, setIterativeError] = useState<string | null>(null);
     const [isExerciseOpen, setExerciseOpen] = useState(false);
-    const [exercisePacks, setExercisePacks] = useState<any[]>([]);
+    const [exercisePacks, setExercisePacks] = useState<ExercisePack[]>([]);
     const [activePackId, setActivePackId] = useState<string | null>(null);
     const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
     const [exerciseAnswer, setExerciseAnswer] = useState<string[]>([]);
     const [exerciseFeedback, setExerciseFeedback] = useState<string | null>(null);
     const [isPluginsOpen, setPluginsOpen] = useState(false);
-    const [plugins, setPlugins] = useState<any[]>([]);
+    const [plugins, setPlugins] = useState<Plugin[]>([]);
     const [isVersionsOpen, setVersionsOpen] = useState(false);
-    const [projectVersions, setProjectVersions] = useState<any[]>([]);
+    const [projectVersions, setProjectVersions] = useState<ProjectVersion[]>([]);
     const [versionName, setVersionName] = useState('');
     const [isStepCompareOpen, setStepCompareOpen] = useState(false);
     const [stepCompareResult, setStepCompareResult] = useState<string | null>(null);
@@ -405,7 +407,15 @@ const App: React.FC = () => {
     const logDiagnostic = (message: string, data?: unknown) => {
         if (!isDesktop) return;
         const timestamp = new Date().toISOString();
-        const entry = data ? `${timestamp} ${message} | ${JSON.stringify(data)}` : `${timestamp} ${message}`;
+        let serialized = '';
+        if (data !== undefined) {
+            try {
+                serialized = JSON.stringify(data);
+            } catch {
+                serialized = '[unserializable]';
+            }
+        }
+        const entry = data !== undefined ? `${timestamp} ${message} | ${serialized}` : `${timestamp} ${message}`;
         setDiagnostics(prev => [entry, ...prev].slice(0, 200));
     };
 
@@ -951,10 +961,10 @@ const App: React.FC = () => {
     useEffect(() => {
         if (builderMode !== 'visual') return;
         const nodes = expressionToBuilderNodes(expression);
-        if (nodes.length > 0 || expression.trim() === '') {
-            setBuilderNodes(nodes);
-        }
-    }, [builderMode]);
+        if (nodes.length === 0 && expression.trim() !== '') return;
+        const same = JSON.stringify(nodes) === JSON.stringify(builderNodes);
+        if (!same) setBuilderNodes(nodes);
+    }, [builderMode, expression, builderNodes]);
 
     useEffect(() => {
         if (builderMode !== 'text') return;
@@ -2814,7 +2824,7 @@ const App: React.FC = () => {
             ) : null}
 
             {error && <div className="mt-6 p-4 bg-red-400/20 border border-red-500/30 text-red-800 rounded-lg"><p className="font-bold">Error:</p><p>{error}</p></div>}
-            {isLoading && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
+            {showComputeIndicator && <div className="flex justify-center items-center mt-8"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div></div>}
         </div>
     );
 

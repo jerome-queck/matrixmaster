@@ -24,6 +24,10 @@ import type {
     SystemType,
     ValidMatrix
 } from '../types';
+import { createLruCache } from './lru';
+
+const RESULT_CACHE_LIMIT = 75;
+const resultCache = createLruCache<MatrixWorkerResponse['result']>(RESULT_CACHE_LIMIT);
 
 const buildAnalysisResult = (
     matrix: ValidMatrix,
@@ -129,6 +133,18 @@ const handleDetails = (payload: MatrixWorkerRequest & { type: 'details' }) => {
 self.onmessage = (event: MessageEvent<MatrixWorkerRequest>) => {
     const message = event.data;
     const baseResponse: Omit<MatrixWorkerResponse, 'result' | 'error' | 'ok'> = { id: message.id };
+    const cacheKey = message.requestHash && message.type !== 'details'
+        ? `${message.type}:${message.requestHash}`
+        : null;
+
+    if (cacheKey) {
+        const cached = resultCache.get(cacheKey);
+        if (cached !== undefined) {
+            const response: MatrixWorkerResponse = { ...baseResponse, ok: true, result: cached };
+            self.postMessage(response);
+            return;
+        }
+    }
 
     try {
         let result: AnyResult | { id: string; name: string; result?: AnyResult; error?: string }[];
@@ -158,6 +174,10 @@ self.onmessage = (event: MessageEvent<MatrixWorkerRequest>) => {
                 break;
             default:
                 throw new Error('Unknown worker request.');
+        }
+
+        if (cacheKey) {
+            resultCache.set(cacheKey, result);
         }
 
         const response: MatrixWorkerResponse = { ...baseResponse, ok: true, result };

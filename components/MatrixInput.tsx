@@ -89,7 +89,7 @@ export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matri
         try {
             const text = await navigator.clipboard.readText();
             const newMatrix = matrix.map(row => [...row]);
-            const pastedRows = text.split('\n').map(row => row.split(/[\t,]/));
+            const pastedRows = text.split(/\r?\n/).map(row => row.split(/[\t,]/));
             
             for (let r = 0; r < Math.min(rows, pastedRows.length); r++) {
                 for (let c = 0; c < Math.min(cols, pastedRows[r].length); c++) {

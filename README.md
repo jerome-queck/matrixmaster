@@ -6,7 +6,7 @@ Matrix Master is an offline-first linear algebra workspace for numeric and symbo
 
 ### Core Solvers
 - **System Solver** — Row-reduction with step-by-step elimination.
-- **Matrix Operations** — Evaluate expressions like `A * B`, `A^T`, `A^{-1}` and more.
+- **Matrix Operations** — Evaluate expressions like `A * B`, `A^2`, `(A + B) * C` and more.
 - **Determinant of Operation** — Compute determinants of matrix expressions.
 - **Analysis** — Rank, trace, LU/QR/SVD, eigenvalues/vectors, and related diagnostics.
 
