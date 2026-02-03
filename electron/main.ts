@@ -119,6 +119,14 @@ const sendUpdateStatus = (payload: Record<string, unknown>) => {
   }
 };
 
+const sanitizeUpdateError = (error: unknown) => {
+  const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+  if (rawMessage.includes('latest-mac.yml') && rawMessage.includes('404')) {
+    return 'Update metadata missing for this release. Please try again later.';
+  }
+  return rawMessage || 'Update error';
+};
+
 const configureAutoUpdates = () => {
   if (isDev) return;
 
@@ -163,7 +171,7 @@ const configureAutoUpdates = () => {
   });
 
   autoUpdater.on('error', (error) => {
-    sendUpdateStatus({ state: 'error', message: error?.message || 'Update error' });
+    sendUpdateStatus({ state: 'error', message: sanitizeUpdateError(error) });
   });
 
   autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);

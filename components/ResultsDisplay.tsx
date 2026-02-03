@@ -242,9 +242,13 @@ const DetailsToggleButton: React.FC<{
     );
 };
 
+const LARGE_MATRIX_ROWS = 12;
+const MATRIX_MAX_HEIGHT = '60vh';
+const needsVerticalScroll = (matrix?: ValidMatrix | null) => (matrix?.length ?? 0) >= LARGE_MATRIX_ROWS;
+
 // A robust wrapper for making LaTeX content scrollable
-const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true }) => (
-    <div className="overflow-x-auto w-full p-2 flex justify-center relative">
+const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean, allowYScroll?: boolean, maxHeight?: string}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true, allowYScroll = false, maxHeight }) => (
+    <div className={`overflow-x-auto w-full p-2 flex justify-center relative ${allowYScroll ? 'overflow-y-auto' : ''}`} style={allowYScroll && maxHeight ? { maxHeight } : undefined}>
       {showCopy && (
         <button
           className="absolute right-2 top-2 px-2 py-1 rounded-md text-xs glass-btn"
@@ -337,7 +341,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
         <div className="space-y-4">
             {analysisMatrix && (
                 <ResultSection title="Input Matrix" isOpen={isOpen("Input Matrix")} onToggle={() => toggleSection("Input Matrix")}>
-                    <ScrollableLatex latex={formatMatrixCached(analysisMatrix)} />
+                    <ScrollableLatex latex={formatMatrixCached(analysisMatrix)} allowYScroll={needsVerticalScroll(analysisMatrix)} maxHeight={MATRIX_MAX_HEIGHT} />
                 </ResultSection>
             )}
             <ResultSection title="Summary" isOpen={isOpen("Summary")} onToggle={() => toggleSection("Summary")}>
@@ -517,7 +521,9 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                 <div className="flex flex-col items-center text-primary w-full">
                     <div className="mt-1 px-3 py-1 glass-panel rounded-md shadow-inner text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 </div>
-                <div className="glass-panel p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixCached(step.result)}`} /></div>
+                <div className="glass-panel p-2 rounded-lg my-2 w-full">
+                    <ScrollableLatex latex={`= ${formatMatrixCached(step.result)}`} allowYScroll={needsVerticalScroll(step.result)} maxHeight={MATRIX_MAX_HEIGHT} />
+                </div>
                 
                 {detailsExist && (
                      <button
@@ -541,7 +547,14 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
             </div>
             )
         })}</div></ResultSection>
-        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={formatMatrixCached(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
+        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}>
+            <div className="p-4 glass-panel rounded-lg w-full">
+                <ScrollableLatex latex={formatMatrixCached(result.finalResult)} allowYScroll={needsVerticalScroll(result.finalResult)} maxHeight={MATRIX_MAX_HEIGHT} />
+            </div>
+            <div className="mt-4 flex justify-end">
+                <button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button>
+            </div>
+        </ResultSection>
     </div>
 )};
 
@@ -587,7 +600,9 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 onToggleSection(refSectionName);
             }} onExplain={props.onExplain}>
                 <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} /></div>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6">
+                    <ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} allowYScroll={needsVerticalScroll(finalRefMatrix)} maxHeight={MATRIX_MAX_HEIGHT} />
+                </div>
                 <StepsSection sectionName={refSectionName} steps={refSteps} formName="Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -601,7 +616,9 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 onToggleSection(rrefSectionName);
             }} onExplain={props.onExplain}>
                 <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} /></div>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6">
+                    <ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} allowYScroll={needsVerticalScroll(finalRrefMatrix)} maxHeight={MATRIX_MAX_HEIGHT} />
+                </div>
                  <StepsSection sectionName={rrefSectionName} steps={rrefSteps} formName="Reduced Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -831,6 +848,12 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
     const actualSteps = isFirstStepAPlaceholder ? steps.slice(1) : steps;
 
     const matrixFormatter = (m: ValidMatrix) => isAugmented ? formatAugmentedMatrixToLatex(m, systemType, augmentedCols) : props.formatMatrixCached(m);
+
+    const maxMatrixRows = React.useMemo(() => {
+        const sizes = actualSteps.map(step => step.matrix?.length ?? step.matrixBefore?.length ?? 0);
+        const initialSize = initialMatrix?.length ?? 0;
+        return Math.max(initialSize, ...sizes);
+    }, [actualSteps, initialMatrix]);
     
     const rowHasChanged = (rowA: SymbolicFraction[], rowB: SymbolicFraction[]) => {
         if (rowA.length !== rowB.length) return true;
@@ -846,7 +869,11 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                 <p className="text-secondary mb-4 break-words">No operations were needed. The starting matrix is already in {formName}.</p>
                 {initialMatrix && (
                     <div className="glass-panel p-2 rounded-lg w-full">
-                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} />
+                        <ScrollableLatex
+                            latex={matrixFormatter(initialMatrix)}
+                            allowYScroll={needsVerticalScroll(initialMatrix)}
+                            maxHeight={MATRIX_MAX_HEIGHT}
+                        />
                     </div>
                 )}
             </div>
@@ -902,7 +929,7 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         if (prev !== undefined) setTimelineIndex(prev);
     };
 
-    const shouldVirtualizeSteps = actualSteps.length > 30;
+    const shouldVirtualizeSteps = actualSteps.length > 30 && maxMatrixRows < LARGE_MATRIX_ROWS;
     const stepList = (index: number) => {
         const step = actualSteps[index];
         const lazy = shouldVirtualizeSteps;
@@ -920,7 +947,19 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                 </div>
                 {step.description && <p className="text-sm text-secondary italic mt-2 text-center break-words">{step.description}</p>}
                 {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
-                {step.matrix ? <div className="glass-panel p-2 rounded-2xl w-full"><ScrollableLatex latex={matrixFormatter(step.matrix)} lazy={lazy} rowClassProvider={rowProvider} /></div> : <p className="text-sm text-secondary">(Intermediate matrix hidden for performance)</p>}
+                {step.matrix ? (
+                    <div className="glass-panel p-2 rounded-2xl w-full">
+                        <ScrollableLatex
+                            latex={matrixFormatter(step.matrix)}
+                            lazy={lazy}
+                            rowClassProvider={rowProvider}
+                            allowYScroll={needsVerticalScroll(step.matrix)}
+                            maxHeight={MATRIX_MAX_HEIGHT}
+                        />
+                    </div>
+                ) : (
+                    <p className="text-sm text-secondary">(Intermediate matrix hidden for performance)</p>
+                )}
                 {step.matrixBefore && (
                     <div className="w-full flex flex-wrap gap-2 items-center">
                         <input
@@ -951,6 +990,8 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                 latex={matrixFormatter(step.matrixBefore)}
                                 rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
                                 lazy={lazy}
+                                allowYScroll={needsVerticalScroll(step.matrixBefore)}
+                                maxHeight={MATRIX_MAX_HEIGHT}
                             />
                         )}
                     </div>
@@ -961,6 +1002,8 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                 latex={matrixFormatter(step.matrix)}
                                 rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
                                 lazy={lazy}
+                                allowYScroll={needsVerticalScroll(step.matrix)}
+                                maxHeight={MATRIX_MAX_HEIGHT}
                             />
                         )}
                     </div>
@@ -997,7 +1040,12 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                         {isFirstStepAPlaceholder ? "Starting with the initial matrix:" : "Starting matrix for this phase:"}
                     </p>
                     <div className="glass-panel p-2 rounded-2xl w-full">
-                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} lazy={shouldVirtualizeSteps} />
+                        <ScrollableLatex
+                            latex={matrixFormatter(initialMatrix)}
+                            lazy={shouldVirtualizeSteps}
+                            allowYScroll={needsVerticalScroll(initialMatrix)}
+                            maxHeight={MATRIX_MAX_HEIGHT}
+                        />
                     </div>
                 </>
             )}
@@ -1075,6 +1123,8 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                         latex={matrixFormatter(actualSteps[timelineIndex].matrix!)}
                                         lazy={shouldVirtualizeSteps}
                                         rowClassProvider={highlightDiff && actualSteps[timelineIndex].matrixBefore ? (r) => rowHasChanged(actualSteps[timelineIndex].matrixBefore![r], actualSteps[timelineIndex].matrix![r]) ? 'bg-amber-100/60' : '' : undefined}
+                                        allowYScroll={needsVerticalScroll(actualSteps[timelineIndex].matrix)}
+                                        maxHeight={MATRIX_MAX_HEIGHT}
                                     />
                                 </div>
                             )}
