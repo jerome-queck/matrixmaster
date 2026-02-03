@@ -19,6 +19,7 @@ interface ResultsDisplayProps {
     openSections: Record<string, boolean>;
     onToggleSection: (section: string) => void;
     onRequestDetails: (section: string, payload?: any) => void;
+    onCancelDetails?: (section: string) => void;
     onUseResult: (matrix: ValidMatrix) => void;
     loadingDetails: string | null;
     onExplain: (topic: string) => void;
@@ -206,10 +207,11 @@ const DetailsToggleButton: React.FC<{
     detailsExist: boolean;
     onCalculate: (section: string, payload?: any) => void;
     loadingDetails: string | null;
+    onCancel?: (section: string) => void;
     payload?: any;
     onClick?: () => void;
     children?: React.ReactNode;
-}> = ({ sectionName, detailsExist, onCalculate, loadingDetails, payload, onClick, children }) => {
+}> = ({ sectionName, detailsExist, onCalculate, loadingDetails, onCancel, payload, onClick, children }) => {
     
     const isLoadingThis = loadingDetails === sectionName;
 
@@ -230,7 +232,7 @@ const DetailsToggleButton: React.FC<{
     };
     
     return (
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-center gap-2">
             <button
                 onClick={handleClick}
                 disabled={!!loadingDetails}
@@ -238,6 +240,15 @@ const DetailsToggleButton: React.FC<{
             >
                 {buttonContent}
             </button>
+            {isLoadingThis && onCancel && (
+                <button
+                    type="button"
+                    onClick={() => onCancel(sectionName)}
+                    className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-2 px-4 rounded-lg text-sm"
+                >
+                    Cancel
+                </button>
+            )}
         </div>
     );
 };
@@ -553,6 +564,7 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
             detailsExist={detailsExist}
             onCalculate={handleRequestAndShowDetails}
             loadingDetails={loadingDetails}
+            onCancel={props.onCancelDetails}
         />
         
         {detailsExist && (
@@ -614,6 +626,7 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                         detailsExist={false}
                         onCalculate={() => handleRequestAndShowDetails("matrixOperations")}
                         loadingDetails={loadingDetails}
+                        onCancel={props.onCancelDetails}
                     >Show Workings</DetailsToggleButton>
                 )}
                 
@@ -822,6 +835,7 @@ const StepsSection: React.FC<{ sectionName: string, steps: RowOperationStep[], f
                 detailsExist={detailsExist}
                 onCalculate={handleRequestAndShowDetails}
                 loadingDetails={loadingDetails}
+                onCancel={props.onCancelDetails}
             />
             {detailsExist && (
                 <>
@@ -1252,6 +1266,7 @@ const SolutionDisplay: React.FC<{ result: SolutionResult, sectionName: string } 
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
 
             {detailsExist && (
@@ -1295,6 +1310,7 @@ const NullSpaceDisplay: React.FC<{ result: NullSpaceResult, sectionName: string 
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
 
             {detailsExist && (
@@ -1397,6 +1413,7 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
             
             {detailsExist && (
@@ -1465,7 +1482,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                         <div className="flex flex-col gap-2">{[...Array(numRows)].map((_, i) => <input key={i} type="text" value={bVectorInput[i]} onChange={(e) => { const newB = [...bVectorInput]; newB[i] = e.target.value; setBVectorInput(newB); }} className="w-24 glass-input rounded-md px-3 py-1 focus:outline-none" />)}</div>
                     </div>
                     {bVectorError && <p className="text-red-500 mt-2">{bVectorError}</p>}
-                    <DetailsToggleButton sectionName={sectionName} detailsExist={false} onCalculate={() => {}} loadingDetails={props.loadingDetails} onClick={handleCalculateHomogeneous}>Calculate with this 'b'</DetailsToggleButton>
+                    <DetailsToggleButton sectionName={sectionName} detailsExist={false} onCalculate={() => {}} loadingDetails={props.loadingDetails} onCancel={props.onCancelDetails} onClick={handleCalculateHomogeneous}>Calculate with this 'b'</DetailsToggleButton>
                 </div>
             ) : (
                 <DetailsToggleButton 
@@ -1473,6 +1490,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                     detailsExist={detailsExist}
                     onCalculate={props.handleRequestAndShowDetails}
                     loadingDetails={props.loadingDetails}
+                    onCancel={props.onCancelDetails}
                 />
             )}
             
