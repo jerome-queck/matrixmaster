@@ -25,7 +25,7 @@ jobs:
         run: npm ci
 
       - name: Build artifacts
-        run: npm run electron:dist
+        run: npm run electron:dist -- --publish=never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
