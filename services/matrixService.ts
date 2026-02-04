@@ -1,4 +1,5 @@
-import type { Fraction, ValidMatrix, RowOperationStep, CalculationResult, DeterminantResult, DeterminantRowOpStep, SystemType, NullSpaceResult, SolutionResult, Term, Polynomial, SymbolicFraction, InverseResult, AdjointMethodResult, CofactorStep, CramersRuleResult, MatrixMultiplicationDetail, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, OperationNode, Operand, NumberFormatOptions, SimplifyTraceStep } from '../types';
+import type { Fraction, ValidMatrix, RowOperationStep, CalculationResult, DeterminantResult, DeterminantRowOpStep, SystemType, NullSpaceResult, SolutionResult, Term, Polynomial, SymbolicFraction, InverseResult, AdjointMethodResult, CofactorStep, CramersRuleResult, MatrixMultiplicationDetail, MatrixOperationsResult, MatrixOperationStep, AppMode, OperationNode, Operand, NumberFormatOptions, SimplifyTraceStep } from '../types';
+import { createLruCache } from './lru';
 
 // #region Basic Fraction and Integer Helpers
 const gcd = (a: number, b: number): number => {
@@ -1516,6 +1517,88 @@ export function calculateCramersRule(coeffMatrix: ValidMatrix, bVector: Symbolic
 
 // #region Matrix Operations Mode
 const precedence: { [key: string]: number } = { '+': 1, '-': 1, '*': 2, '^': 3 };
+const EXPRESSION_CACHE_LIMIT = 200;
+const rpnCache = createLruCache<string[]>(EXPRESSION_CACHE_LIMIT);
+const builderCache = createLruCache<OperationNode[]>(EXPRESSION_CACHE_LIMIT);
+
+export const normalizeExpression = (expression: string): string => expression.replace(/\s+/g, '').toUpperCase();
+
+export const validateExpression = (
+    expression: string,
+    matrixDefs: Record<string, { rows: number | ''; cols: number | '' }>
+): { normalizedExpression: string; errors: string[]; referencedMatrices: string[] } => {
+    const normalizedExpression = normalizeExpression(expression);
+    const errors: string[] = [];
+    const referencedMatrices: string[] = [];
+
+    if (!normalizedExpression) {
+        errors.push('Expression is empty.');
+        return { normalizedExpression, errors, referencedMatrices };
+    }
+
+    const tokens = normalizedExpression.match(/[A-Z]+|\d+|[\^\*\+\-\(\)]/g) || [];
+    if (tokens.join('') !== normalizedExpression) {
+        errors.push('Expression contains invalid characters.');
+    }
+
+    let parenDepth = 0;
+    let expectOperand = true;
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        const prev = tokens[i - 1];
+        const next = tokens[i + 1];
+        const isMatrix = /^[A-Z]+$/.test(token);
+        const isNumber = /^\d+$/.test(token);
+        const isOperator = token in precedence;
+
+        if (token === '(') {
+            if (!expectOperand) errors.push('Missing operator before "(".');
+            parenDepth += 1;
+            continue;
+        }
+        if (token === ')') {
+            if (expectOperand) errors.push('Missing operand before ")".');
+            parenDepth -= 1;
+            if (parenDepth < 0) errors.push('Mismatched parentheses.');
+            continue;
+        }
+
+        if (expectOperand) {
+            if (isMatrix) {
+                if (!referencedMatrices.includes(token)) referencedMatrices.push(token);
+                if (!matrixDefs[token]) errors.push(`Matrix ${token} is not defined.`);
+                expectOperand = false;
+            } else if (isNumber) {
+                if (prev !== '^') {
+                    errors.push('Exponent must follow "^".');
+                }
+                const exponent = parseInt(token, 10);
+                if (!Number.isInteger(exponent) || exponent < 1) {
+                    errors.push('Exponent must be a positive integer.');
+                }
+                expectOperand = false;
+            } else {
+                errors.push(`Unexpected token "${token}".`);
+            }
+        } else {
+            if (isOperator) {
+                if (token === '^') {
+                    if (!next || !/^\d+$/.test(next)) {
+                        errors.push('Exponent must be a number after "^".');
+                    }
+                }
+                expectOperand = true;
+            } else {
+                errors.push(`Missing operator before "${token}".`);
+            }
+        }
+    }
+
+    if (parenDepth !== 0) errors.push('Mismatched parentheses.');
+    if (expectOperand) errors.push('Expression ends with an operator.');
+
+    return { normalizedExpression, errors, referencedMatrices };
+};
 
 const parseExpressionToRPN = (expression: string): string[] => {
     const outputQueue: string[] = [];
@@ -1558,6 +1641,15 @@ const parseExpressionToRPN = (expression: string): string[] => {
         outputQueue.push(op);
     }
     return outputQueue;
+};
+
+const getCachedRpn = (expression: string): string[] => {
+    const normalized = normalizeExpression(expression);
+    const cached = rpnCache.get(normalized);
+    if (cached) return [...cached];
+    const rpn = parseExpressionToRPN(normalized);
+    rpnCache.set(normalized, rpn);
+    return [...rpn];
 };
 
 type RPNStackItem = {
@@ -1655,34 +1747,13 @@ const evaluateRPN = (rpn: string[], matrices: Map<string, ValidMatrix>, options:
 };
 
 export const calculateMatrixOperations = (expression: string, matrices: Map<string, ValidMatrix>, options: CalculationOptions): MatrixOperationsResult => {
-    const rpn = parseExpressionToRPN(expression.replace(/\s/g, ''));
+    const rpn = getCachedRpn(expression);
     return evaluateRPN(rpn, matrices, options);
-};
-
-export const calculateDeterminantOfOperation = (expression: string, matrices: Map<string, ValidMatrix>, options: CalculationOptions): DeterminantOfOperationResult => {
-    const operationResult = calculateMatrixOperations(expression, matrices, options);
-    const finalMatrix = operationResult.finalResult;
-
-    if (finalMatrix.length !== finalMatrix[0]?.length) {
-        throw new Error("Determinant can only be calculated for a square matrix.");
-    }
-
-    const {detResult, conditions: detConditions} = getDeterminantDetails(finalMatrix, options.summarized);
-
-    const combinedConditions = [...operationResult.conditions, ...detConditions];
-    const uniqueConditions: SymbolicFraction[] = [];
-    for (const cond of combinedConditions) {
-        if (!uniqueConditions.some(c => areSFEqual(c, cond))) {
-            uniqueConditions.push(cond);
-        }
-    }
-
-    return { operationResult, determinant: detResult, conditions: uniqueConditions };
 };
 // #endregion
 
 // #region On-Demand Detail Calculation
-type AllResultTypes = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult;
+type AllResultTypes = CalculationResult | MatrixOperationsResult;
 type OriginalInputs = {
     matrix?: ValidMatrix;
     systemType?: SystemType;
@@ -1738,7 +1809,7 @@ export const recalculateDetailsForSection = (
                  calcResults.solutionSetRref = solutionSetRref;
              }
         }
-    } else { // Matrix Ops or Det(Ops)
+    } else { // Matrix Ops
         const { expression, matrices } = originalInputs;
         if (!expression || !matrices) throw new Error("Original expression/matrices not provided for detail recalculation.");
         
@@ -1746,16 +1817,6 @@ export const recalculateDetailsForSection = (
              const opsResults = newResults as MatrixOperationsResult;
              const detailedOps = calculateMatrixOperations(expression, matrices, { summarized: false });
              opsResults.steps = detailedOps.steps;
-
-        } else if (appMode === 'determinantOfOperation') {
-            const detOpsResults = newResults as DeterminantOfOperationResult;
-            if (section === 'Determinant') {
-                 const { detResult } = getDeterminantDetails(detOpsResults.operationResult.finalResult, false);
-                 detOpsResults.determinant = detResult;
-            } else { // It's an op-workings-N section
-                 const detailedOps = calculateMatrixOperations(expression, matrices, { summarized: false });
-                 detOpsResults.operationResult.steps = detailedOps.steps;
-            }
         }
     }
     
@@ -1851,9 +1912,12 @@ export const builderNodesToExpression = (nodes: OperationNode[]): string => {
 
 
 export const expressionToBuilderNodes = (expression: string): OperationNode[] => {
-    if (!expression.trim()) return [];
+    const normalizedExpression = normalizeExpression(expression);
+    if (!normalizedExpression) return [];
+    const cached = builderCache.get(normalizedExpression);
+    if (cached) return JSON.parse(JSON.stringify(cached)) as OperationNode[];
     try {
-        const rpn = parseExpressionToRPN(expression.replace(/\s/g, ''));
+        const rpn = getCachedRpn(normalizedExpression);
         const stack: Operand[] = [];
         const nodes: OperationNode[] = [];
         let tempIdCounter = 0;
@@ -1885,7 +1949,8 @@ export const expressionToBuilderNodes = (expression: string): OperationNode[] =>
             nodes[nodes.length - 1].resultName = 'Final Result';
         }
 
-        return nodes;
+        builderCache.set(normalizedExpression, nodes);
+        return JSON.parse(JSON.stringify(nodes)) as OperationNode[];
     } catch (e) {
         console.error("Failed to parse expression into nodes:", e);
         return [];
@@ -2124,6 +2189,41 @@ export const numericTrace = (matrix: NumericMatrix): number => {
     return sum;
 };
 
+export const numericNorm1 = (matrix: NumericMatrix): number => {
+    const cols = matrix[0]?.length ?? 0;
+    let max = 0;
+    for (let c = 0; c < cols; c++) {
+        let sum = 0;
+        for (let r = 0; r < matrix.length; r++) {
+            sum += Math.abs(matrix[r]?.[c] ?? 0);
+        }
+        max = Math.max(max, sum);
+    }
+    return max;
+};
+
+export const numericNormInf = (matrix: NumericMatrix): number => {
+    let max = 0;
+    for (const row of matrix) {
+        const sum = row.reduce((acc, v) => acc + Math.abs(v), 0);
+        max = Math.max(max, sum);
+    }
+    return max;
+};
+
+export const numericNormFro = (matrix: NumericMatrix): number => {
+    let sumSq = 0;
+    for (const row of matrix) {
+        for (const v of row) sumSq += v * v;
+    }
+    return Math.sqrt(sumSq);
+};
+
+export const numericNorm2 = (svd?: { singularValues: number[] }): number | undefined => {
+    if (!svd || svd.singularValues.length === 0) return undefined;
+    return Math.max(...svd.singularValues);
+};
+
 export const numericLU = (matrix: NumericMatrix, eps = EPSILON): { L: NumericMatrix; U: NumericMatrix; P: NumericMatrix; pivotSign: number } => {
     const n = matrix.length;
     const U = cloneNumericMatrix(matrix);
@@ -2163,6 +2263,16 @@ export const numericLU = (matrix: NumericMatrix, eps = EPSILON): { L: NumericMat
     }
 
     return { L, U, P, pivotSign };
+};
+
+export const numericDeterminant = (matrix: NumericMatrix): number => {
+    if (matrix.length !== matrix[0]?.length) throw new Error('Determinant requires a square matrix.');
+    const { U, pivotSign } = numericLU(matrix);
+    let det = pivotSign;
+    for (let i = 0; i < U.length; i++) {
+        det *= U[i][i] ?? 0;
+    }
+    return det;
 };
 
 export const numericQR = (matrix: NumericMatrix, eps = EPSILON): { Q: NumericMatrix; R: NumericMatrix } => {

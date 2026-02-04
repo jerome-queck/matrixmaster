@@ -1,13 +1,13 @@
 
 import React from 'react';
-import type { CalculationResult, RowOperationStep, DeterminantRowOpStep, ValidMatrix, SolutionResult, NullSpaceResult, SymbolicFraction, InverseResult, CramersRuleResult, AdjointMethodResult, MatrixOperationsResult, DeterminantOfOperationResult, MatrixOperationStep, AppMode, DeterminantResult, MatrixMultiplicationDetail, CofactorStep, SystemType, MatrixAnalysisResult, NumberFormatOptions, VariableAssumption, Matrix } from '../types';
+import type { CalculationResult, RowOperationStep, DeterminantRowOpStep, ValidMatrix, SolutionResult, NullSpaceResult, SymbolicFraction, InverseResult, CramersRuleResult, AdjointMethodResult, MatrixOperationsResult, MatrixOperationStep, AppMode, DeterminantResult, MatrixMultiplicationDetail, CofactorStep, SystemType, MatrixAnalysisResult, NumberFormatOptions, VariableAssumption, Matrix } from '../types';
 import { LatexRenderer } from './LatexRenderer';
-import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex, symbolicFractionToNumber, toNumericMatrix, numericConditionNumber, numericTrace, addSF, multiplySF } from '../services/matrixService';
+import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex, symbolicFractionToNumber, toNumericMatrix, numericTrace, addSF, multiplySF } from '../services/matrixService';
 import { hashMatrix, hashNumericMatrix } from '../services/hash';
 import { createLruCache } from '../services/lru';
 import { copyToClipboard } from '../services/clipboardService';
 
-type AllResultTypes = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
+type AllResultTypes = CalculationResult | MatrixOperationsResult | MatrixAnalysisResult;
 type ClipboardErrorHandler = (message: string, data?: unknown) => void;
 const ClipboardErrorContext = React.createContext<ClipboardErrorHandler | undefined>(undefined);
 
@@ -41,7 +41,6 @@ interface SharedDisplayProps extends ResultsDisplayProps {
 
 const isSystemSolverResult = (res: AllResultTypes): res is CalculationResult => 'systemType' in res;
 const isMatrixOpsResult = (res: AllResultTypes): res is MatrixOperationsResult => 'finalResult' in res;
-const isDeterminantOfOpsResult = (res: AllResultTypes): res is DeterminantOfOperationResult => 'operationResult' in res;
 const isAnalysisResult = (res: AllResultTypes): res is MatrixAnalysisResult => 'kind' in res && res.kind === 'analysis';
 
 const useLatexCache = () => {
@@ -84,9 +83,6 @@ const SummaryBar: React.FC<{ results: AllResultTypes; numberFormat?: NumberForma
         }
     } else if (isMatrixOpsResult(results)) {
         items.push({ label: 'Steps', content: results.steps.length });
-        if (results.conditions.length > 0) items.push({ label: 'Conditions', content: results.conditions.length });
-    } else if (isDeterminantOfOpsResult(results)) {
-        items.push({ label: 'Determinant', content: <LatexRenderer latex={`\\det(A) = ${formatSymbolicFractionToLatex(results.determinant.value)}`} displayMode={false} /> });
         if (results.conditions.length > 0) items.push({ label: 'Conditions', content: results.conditions.length });
     } else {
         const solver = results as CalculationResult;
@@ -414,10 +410,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
         if (!analysisMatrix || result.mode !== 'numeric') return null;
         try { return toNumericMatrix(analysisMatrix); } catch { return null; }
     }, [analysisMatrix, result.mode]);
-    const conditionNumber = React.useMemo(() => {
-        if (!numericMatrix) return null;
-        try { return numericConditionNumber(numericMatrix); } catch { return null; }
-    }, [numericMatrix]);
+    const conditionNumber = result.metrics?.conditionNumber ?? null;
     const perturbation = React.useMemo(() => {
         if (!numericMatrix) return null;
         const perturbed = numericMatrix.map(row => row.map(v => v + epsilon));
@@ -457,6 +450,53 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                     )}
                 </div>
             </ResultSection>
+
+            {result.metrics && (
+                <ResultSection title="Metrics" isOpen={isOpen("Metrics")} onToggle={() => toggleSection("Metrics")}>
+                    <div className="space-y-2 text-sm text-secondary">
+                        {result.metrics.determinant !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">Determinant:</span>
+                                <LatexRenderer latex={formatNumberToLatex(result.metrics.determinant, numberFormat)} displayMode={false} />
+                            </div>
+                        )}
+                        {result.metrics.norm1 !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">1-norm:</span>
+                                <LatexRenderer latex={formatNumberToLatex(result.metrics.norm1, numberFormat)} displayMode={false} />
+                            </div>
+                        )}
+                        {result.metrics.normInf !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">∞-norm:</span>
+                                <LatexRenderer latex={formatNumberToLatex(result.metrics.normInf, numberFormat)} displayMode={false} />
+                            </div>
+                        )}
+                        {result.metrics.normFro !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">Frobenius norm:</span>
+                                <LatexRenderer latex={formatNumberToLatex(result.metrics.normFro, numberFormat)} displayMode={false} />
+                            </div>
+                        )}
+                        {result.metrics.norm2 !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">2-norm:</span>
+                                <LatexRenderer latex={formatNumberToLatex(result.metrics.norm2, numberFormat)} displayMode={false} />
+                            </div>
+                        )}
+                        {conditionNumber !== null && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold">Condition number:</span>
+                                {Number.isFinite(conditionNumber) ? (
+                                    <LatexRenderer latex={formatNumberToLatex(conditionNumber, numberFormat)} displayMode={false} />
+                                ) : (
+                                    <span>∞</span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </ResultSection>
+            )}
 
             {result.mode === 'numeric' && numericMatrix && (
                 <ResultSection title="Sensitivity" isOpen={isOpen("Sensitivity")} onToggle={() => toggleSection("Sensitivity")}>
@@ -656,14 +696,6 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
     </div>
 )};
 
-const DeterminantOfOperationResultDisplay: React.FC<{ result: DeterminantOfOperationResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, ...props }) => (
-    <div className="space-y-4">
-        {result.conditions.length > 0 && <ResultSection title="Assumptions Made During Calculation" isOpen={!!props.openSections["Assumptions Made During Calculation"]} onToggle={() => props.onToggleSection("Assumptions Made During Calculation")}><AssumptionsDisplay conditions={result.conditions} /></ResultSection>}
-        <ResultSection title="Matrix Operation Evaluation" isOpen={!!props.openSections["Matrix Operation Evaluation"]} onToggle={() => props.onToggleSection("Matrix Operation Evaluation")}><MatrixOperationsResultDisplay result={result.operationResult} {...props} /></ResultSection>
-        <DeterminantDisplay determinant={result.determinant} {...props} />
-    </div>
-);
-
 const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
     const { results, originalMatrix, onToggleSection, openSections, toggleDetailsVisibility } = props;
     const calcResults = results as CalculationResult;
@@ -772,7 +804,6 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
         matrices.push(props.originalMatrix || null);
         matrices.push(props.analysisMatrix || null);
         if (isMatrixOpsResult(results)) matrices.push(results.finalResult);
-        if (isDeterminantOfOpsResult(results)) matrices.push(results.operationResult.finalResult);
         const warnings: string[] = [];
         const checkValue = (value: number, assumption: VariableAssumption) => {
             if (assumption.constraint === 'nonzero' && Math.abs(value) < 1e-12) return `${assumption.variable} is assumed nonzero but encountered 0.`;
@@ -829,7 +860,6 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
                 )}
                 {isSystemSolverResult(results) && <SystemSolverResultDisplay {...sharedProps} />}
                 {isMatrixOpsResult(results) && <MatrixOperationsResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
-                {isDeterminantOfOpsResult(results) && <DeterminantOfOperationResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
                 {isAnalysisResult(results) && <AnalysisResultDisplay result={results} analysisMatrix={props.analysisMatrix || null} numberFormat={props.numberFormat} />}
             </div>
         </ClipboardErrorContext.Provider>

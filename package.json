@@ -1,7 +1,7 @@
 {
   "name": "matrix-master",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Offline-first linear algebra workspace for numeric and symbolic computation.",
   "author": "Matrix Master",
   "type": "commonjs",
@@ -68,6 +68,7 @@
         "dmg",
         "zip"
       ],
+      "icon": "assets/icon.icns",
       "sign": false,
       "identity": null,
       "hardenedRuntime": false,
@@ -77,7 +78,8 @@
       "target": [
         "nsis",
         "zip"
-      ]
+      ],
+      "icon": "assets/icon.ico"
     },
     "publish": [
       {

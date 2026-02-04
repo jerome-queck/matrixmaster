@@ -1,4 +1,4 @@
-import type { AnyResult, CalculationResult, DeterminantOfOperationResult, MatrixAnalysisResult, MatrixOperationsResult, NumberFormatOptions, ValidMatrix } from '../types';
+import type { AnyResult, CalculationResult, MatrixAnalysisResult, MatrixOperationsResult, NumberFormatOptions, ValidMatrix } from '../types';
 import {
   formatAugmentedMatrixToLatex,
   formatMatrixToLatex,
@@ -53,11 +53,6 @@ export const buildStepsBundle = (
     const opsResult = results as MatrixOperationsResult;
     const steps = opsResult.steps.map((step) => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
     addSection('Matrix Operation Steps', steps);
-  } else if ('operationResult' in results) {
-    const detOps = results as DeterminantOfOperationResult;
-    const steps = detOps.operationResult.steps.map((step) => `${formatOpLatex(step.operation)}\\\\${formatMatrixToLatex(step.result)}`);
-    addSection('Operation Steps', steps);
-    addSection('Determinant', [`\\det(A) = ${formatSymbolicFractionToLatex(detOps.determinant.value)}`]);
   } else if ('kind' in results && results.kind === 'analysis') {
     const analysis = results as MatrixAnalysisResult;
     const blocks = [`\\text{Rank: } ${analysis.rank}`];
@@ -65,6 +60,17 @@ export const buildStepsBundle = (
       const traceLatex =
         analysis.mode === 'numeric' ? formatNumberToLatex(analysis.trace, numberFormat) : formatSymbolicFractionToLatex(analysis.trace);
       blocks.push(`\\operatorname{tr}(A) = ${traceLatex}`);
+    }
+    if (analysis.metrics) {
+      if (analysis.metrics.determinant !== undefined) blocks.push(`\\det(A) = ${formatNumberToLatex(analysis.metrics.determinant, numberFormat)}`);
+      if (analysis.metrics.norm1 !== undefined) blocks.push(`\\lVert A \\rVert_1 = ${formatNumberToLatex(analysis.metrics.norm1, numberFormat)}`);
+      if (analysis.metrics.normInf !== undefined) blocks.push(`\\lVert A \\rVert_{\\infty} = ${formatNumberToLatex(analysis.metrics.normInf, numberFormat)}`);
+      if (analysis.metrics.normFro !== undefined) blocks.push(`\\lVert A \\rVert_F = ${formatNumberToLatex(analysis.metrics.normFro, numberFormat)}`);
+      if (analysis.metrics.norm2 !== undefined) blocks.push(`\\lVert A \\rVert_2 = ${formatNumberToLatex(analysis.metrics.norm2, numberFormat)}`);
+      if (analysis.metrics.conditionNumber !== undefined) {
+        const cond = Number.isFinite(analysis.metrics.conditionNumber) ? formatNumberToLatex(analysis.metrics.conditionNumber, numberFormat) : '\\infty';
+        blocks.push(`\\kappa(A) = ${cond}`);
+      }
     }
     addSection('Analysis Summary', blocks);
   }

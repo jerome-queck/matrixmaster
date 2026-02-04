@@ -39,7 +39,7 @@ export type Matrix = (SymbolicFraction | null)[][];
 export type ValidMatrix = SymbolicFraction[][];
 
 export type SystemType = 'homogeneous' | 'non-homogeneous';
-export type AppMode = 'systemSolver' | 'matrixOperations' | 'determinantOfOperation' | 'analysis';
+export type AppMode = 'systemSolver' | 'matrixOperations' | 'analysis';
 
 export type AnalysisMode = 'exact' | 'numeric';
 
@@ -181,13 +181,16 @@ export interface MatrixOperationsResult {
     conditions: SymbolicFraction[];
 }
 
-export interface DeterminantOfOperationResult {
-    operationResult: MatrixOperationsResult;
-    determinant: DeterminantResult;
-    conditions: SymbolicFraction[]; // Combined conditions
-}
-
 // --- Analysis Results ---
+
+export interface MatrixAnalysisMetrics {
+    determinant?: number;
+    norm1?: number;
+    normInf?: number;
+    normFro?: number;
+    norm2?: number;
+    conditionNumber?: number;
+}
 
 export interface ExactMatrixAnalysisResult {
     kind: 'analysis';
@@ -195,6 +198,7 @@ export interface ExactMatrixAnalysisResult {
     rank: number;
     trace?: SymbolicFraction;
     warnings: string[];
+    metrics?: MatrixAnalysisMetrics;
 }
 
 export interface NumericMatrixAnalysisResult {
@@ -207,17 +211,17 @@ export interface NumericMatrixAnalysisResult {
     svd?: { U: NumericMatrix; S: NumericMatrix; Vt: NumericMatrix; singularValues: number[] };
     eigen?: { values: number[]; vectors?: NumericMatrix; symmetric: boolean; iterations: number; converged: boolean };
     warnings: string[];
+    metrics?: MatrixAnalysisMetrics;
 }
 
 export type MatrixAnalysisResult = ExactMatrixAnalysisResult | NumericMatrixAnalysisResult;
-export type AnyResult = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
+export type AnyResult = CalculationResult | MatrixOperationsResult | MatrixAnalysisResult;
 
 // --- Worker Types ---
 export type WorkerRequestType =
     | 'systemSolver'
     | 'analysis'
     | 'matrixOperations'
-    | 'determinantOfOperation'
     | 'batch'
     | 'details';
 

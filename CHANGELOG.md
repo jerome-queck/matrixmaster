@@ -27,6 +27,25 @@ Source of truth:
 
 ### Security
 
+## 1.1.0 - 2026-02-04
+### Added
+- Added analysis metrics (determinant, norms, condition number) to results, reports, and exports.
+
+### Changed
+- Improved matrix operations expression UX with validation and matrix-name insert chips.
+- Enhanced the operation builder with reorder/duplicate/insert controls, inline dimensions, and clearer error summaries.
+- Cached matrix expression parsing and builder conversion to reduce recomputation.
+- Added analysis warnings for singular or ill-conditioned matrices when SVD is computed.
+
+### Fixed
+
+### Deprecated
+
+### Removed
+- Removed the Determinant of Operation mode; legacy states now load as Matrix Operations.
+
+### Security
+
 ## 1.0.6 - 2026-02-04
 ### Added
 

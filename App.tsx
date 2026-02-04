@@ -7,11 +7,11 @@ import { LatexRenderer } from './components/LatexRenderer';
 import { OperationBuilder } from './components/OperationBuilder';
 import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
-import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, numericConditionNumber, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
+import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, normalizeExpression, validateExpression, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
 import { copyToClipboard } from './services/clipboardService';
 import { createSafeStorage, safeJsonParse } from './services/storageService';
-import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
+import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
 import { useDelayedFlag } from './hooks/useDelayedFlag';
@@ -122,10 +122,6 @@ const INFO_CONTENT = {
     matrixOperations: {
         title: 'Matrix Operations',
         summary: 'Evaluate expressions like A * B or A^2 - C with optional step details.'
-    },
-    determinantOperation: {
-        title: 'Determinant of Operation',
-        summary: 'Compute determinant of a matrix expression quickly without full expansion.'
     },
     analysis: {
         title: 'Matrix Analysis',
@@ -341,6 +337,7 @@ const App: React.FC = () => {
     const [recipes, setRecipes] = useState<MatrixRecipe[]>([]);
     const [reportOptions, setReportOptions] = useState<ReportOptions>(defaultReportOptions);
     const isDesktop = typeof window !== 'undefined' && !!window.electronAPI?.getAppVersion;
+    const detModeMigrationNotifiedRef = useRef(false);
 
     // Workspace Profiles
     const [profiles, setProfiles] = useState<WorkspaceProfile[]>([]);
@@ -908,9 +905,21 @@ const App: React.FC = () => {
         setError
     });
 
+    const normalizedExpression = useMemo(() => normalizeExpression(expression), [expression]);
     const matrixNamesInExpression = useMemo(() => {
-        return extractMatrixNames(expression);
-    }, [expression, extractMatrixNames]);
+        return extractMatrixNames(normalizedExpression);
+    }, [normalizedExpression, extractMatrixNames]);
+    const validationMatrixDefs = useMemo(() => {
+        const next: Record<string, { rows: number | ''; cols: number | '' }> = {};
+        Object.entries(matrixDefs).forEach(([name, def]) => {
+            next[name] = { rows: def.rows, cols: def.cols };
+        });
+        matrixNamesInExpression.forEach(name => {
+            if (!next[name]) next[name] = { rows: 1, cols: 1 };
+        });
+        return next;
+    }, [matrixDefs, matrixNamesInExpression]);
+    const expressionValidation = useMemo(() => validateExpression(expression, validationMatrixDefs), [expression, validationMatrixDefs]);
 
     const filteredLibrary = useMemo(() => {
         const search = librarySearch.trim().toLowerCase();
@@ -1423,7 +1432,15 @@ const App: React.FC = () => {
 
     const applySharedState = (state: SharedState) => {
         if (!state) return;
-        setAppMode(state.appMode || 'systemSolver');
+        let nextMode = (state.appMode || 'systemSolver') as string;
+        if (nextMode === 'determinantOfOperation') {
+            nextMode = 'matrixOperations';
+            if (!detModeMigrationNotifiedRef.current) {
+                detModeMigrationNotifiedRef.current = true;
+                pushToast('Determinant of Operation has been removed. Switched to Matrix Operations.', 'info');
+            }
+        }
+        setAppMode(nextMode as AppMode);
         const loadedSystemType = state.systemType || 'homogeneous';
         setSystemType(loadedSystemType);
         const loadedRows = state.rows ?? 3;
@@ -1572,7 +1589,6 @@ const App: React.FC = () => {
     const getResultMatrix = (): ValidMatrix | null => {
         if (!results) return null;
         if ('finalResult' in results) return results.finalResult;
-        if ('operationResult' in results) return results.operationResult.finalResult;
         return null;
     };
 
@@ -2218,6 +2234,9 @@ const App: React.FC = () => {
                 const result = await runWorkerRequest('analysis', { matrix: validMatrix, analysisMode, analysisOptions }, 'calculate');
                 startTransition(() => setResults(result as AnyResult));
             } else {
+                if (expressionValidation.errors.length > 0) {
+                    throw new Error(expressionValidation.errors[0]);
+                }
                 const matrices = new Map<string, ValidMatrix>();
                 for (const name in matrixDefs) {
                     if (!matrixNamesInExpression.includes(name)) continue;
@@ -2230,10 +2249,7 @@ const App: React.FC = () => {
                 }
                 const entries = Array.from(matrices.entries());
                 if (appMode === 'matrixOperations') {
-                    const result = await runWorkerRequest('matrixOperations', { expression, matrices: entries }, 'calculate');
-                    startTransition(() => setResults(result as AnyResult));
-                } else if (appMode === 'determinantOfOperation') {
-                    const result = await runWorkerRequest('determinantOfOperation', { expression, matrices: entries }, 'calculate');
+                    const result = await runWorkerRequest('matrixOperations', { expression: expressionValidation.normalizedExpression, matrices: entries }, 'calculate');
                     startTransition(() => setResults(result as AnyResult));
                 }
             }
@@ -2615,10 +2631,45 @@ const App: React.FC = () => {
 
             {builderMode === 'text' ? (
                 <div className="text-center">
+                    <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+                        {Object.keys(matrixDefs).sort().map(name => {
+                            const def = matrixDefs[name];
+                            const rows = typeof def?.rows === 'number' ? def.rows : '?';
+                            const cols = typeof def?.cols === 'number' ? def.cols : '?';
+                            return (
+                                <button
+                                    key={name}
+                                    onClick={() => {
+                                        setBuilderMode('text');
+                                        setExpression(prev => {
+                                            const trimmed = prev.trim();
+                                            if (!trimmed) return name;
+                                            const last = trimmed.slice(-1);
+                                            const needsOp = /[A-Z0-9\)]$/.test(last);
+                                            return `${trimmed}${needsOp ? ' * ' : ' '}${name}`;
+                                        });
+                                    }}
+                                    className="px-2 py-1 rounded-full text-xs glass-btn"
+                                >
+                                    {name} ({rows}x{cols})
+                                </button>
+                            );
+                        })}
+                    </div>
                     <div className="overflow-x-auto glass-panel rounded-2xl p-1">
                         <input type="text" value={expression} onChange={e => setExpression(e.target.value.toUpperCase())} className="block w-full glass-input px-3 py-2 text-ink focus:outline-none font-mono text-lg min-w-max" placeholder="e.g. A^2 * B - C"/>
                     </div>
                     <p className="text-sm text-secondary mt-2">Use capital letters for matrix names. Supported operators: +, -, *, ^. Use parentheses for grouping.</p>
+                    {expressionValidation.errors.length > 0 && (
+                        <div className="mt-3 text-left mx-auto max-w-2xl p-3 bg-red-400/20 border border-red-500/30 text-red-800 rounded-lg text-sm space-y-1">
+                            <div className="font-semibold">Expression issues</div>
+                            <ul className="list-disc list-inside">
+                                {expressionValidation.errors.map((err, idx) => (
+                                    <li key={`${err}-${idx}`}>{err}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <OperationBuilder 
@@ -2800,9 +2851,6 @@ const App: React.FC = () => {
                             {item.result && 'finalResult' in item.result && (
                                 <LatexRenderer latex={formatMatrixToLatex(item.result.finalResult)} />
                             )}
-                            {item.result && 'operationResult' in item.result && (
-                                <LatexRenderer latex={formatMatrixToLatex(item.result.operationResult.finalResult)} />
-                            )}
                         </section>
                     ))}
                 </div>
@@ -2821,7 +2869,6 @@ const App: React.FC = () => {
         { id: 'docs', label: 'Open Documentation', action: () => setDocsOpen(true) },
         { id: 'mode-system', label: 'Switch to System Solver', action: () => handleModeChange('systemSolver') },
         { id: 'mode-ops', label: 'Switch to Matrix Operations', action: () => handleModeChange('matrixOperations') },
-        { id: 'mode-det', label: 'Switch to Determinant of Operation', action: () => handleModeChange('determinantOfOperation') },
         { id: 'mode-analysis', label: 'Switch to Analysis', action: () => handleModeChange('analysis') },
         { id: 'tutor-on', label: 'Tutor Mode On', action: () => setTutorMode(true) },
         { id: 'tutor-off', label: 'Tutor Mode Off', action: () => setTutorMode(false) }
@@ -2832,6 +2879,11 @@ const App: React.FC = () => {
                 setExpression(String(cmd.action.value || '').toUpperCase());
                 setBuilderMode('text');
             } else if (cmd.action?.type === 'setMode') {
+                if (cmd.action.value === 'determinantOfOperation') {
+                    logDiagnostic('plugin-setMode-blocked', { mode: cmd.action.value });
+                    pushToast('Determinant of Operation has been removed. Use Matrix Operations instead.', 'info');
+                    return;
+                }
                 handleModeChange(cmd.action.value as AppMode);
             } else if (cmd.action?.type === 'openTool') {
                 const target = cmd.action.value;
@@ -2855,7 +2907,14 @@ const App: React.FC = () => {
 
             {(appMode === 'systemSolver' && solverMatrix) || (appMode === 'analysis' && analysisMatrix) || (appMode !== 'systemSolver' && appMode !== 'analysis' && matrixNamesInExpression.length > 0) ? (
                 <div className={`grid grid-cols-1 ${appMode === 'analysis' ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4 mt-6`}>
-                    <button onClick={handleCalculate} disabled={isLoading} className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-3 px-6 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>{isLoading ? (appMode === 'analysis' ? 'Analyzing...' : 'Calculating...') : (appMode === 'analysis' ? 'Analyze' : 'Calculate')}</button>
+                    <button
+                        onClick={handleCalculate}
+                        disabled={isLoading || (appMode === 'matrixOperations' && expressionValidation.errors.length > 0)}
+                        className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-3 px-6 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                        {isLoading ? (appMode === 'analysis' ? 'Analyzing...' : 'Calculating...') : (appMode === 'analysis' ? 'Analyze' : 'Calculate')}
+                    </button>
                     {isLoading && (
                         <button onClick={handleCancelCalculation} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl">
                             Cancel
@@ -2965,13 +3024,11 @@ const App: React.FC = () => {
                 <div className="flex glass-panel rounded-2xl p-1 mb-6 no-print">
                     <button onClick={() => handleModeChange('systemSolver')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'systemSolver' ? 'active' : ''}`}>System Solver</button>
                     <button onClick={() => handleModeChange('matrixOperations')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'matrixOperations' ? 'active' : ''}`}>Matrix Operations</button>
-                    <button onClick={() => handleModeChange('determinantOfOperation')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'determinantOfOperation' ? 'active' : ''}`}>Determinant of Operation</button>
                     <button onClick={() => handleModeChange('analysis')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'analysis' ? 'active' : ''}`}>Analysis</button>
                 </div>
                 <div className="flex justify-end mb-4 no-print">
                     {appMode === 'systemSolver' && <InfoButton infoKey="systemSolver" />}
                     {appMode === 'matrixOperations' && <InfoButton infoKey="matrixOperations" />}
-                    {appMode === 'determinantOfOperation' && <InfoButton infoKey="determinantOperation" />}
                     {appMode === 'analysis' && <InfoButton infoKey="analysis" />}
                 </div>
 
