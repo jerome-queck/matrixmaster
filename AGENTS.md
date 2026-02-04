@@ -110,6 +110,7 @@ Testing levels:
 - Quick checks: `npm run test`
 - Deeper: `npm run verify` or `npm run verify:full`
 - Release candidate: `npm run release:check`
+- PR merge gate: GitHub Actions "Release Check" (macOS + Windows) must pass.
 
 Definition of Done:
 - Appropriate tests run for the size/risk of change.
