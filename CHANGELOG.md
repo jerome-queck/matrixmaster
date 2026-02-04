@@ -31,6 +31,7 @@ Source of truth:
 ### Added
 
 ### Changed
+- Added package metadata fields to improve desktop packaging diagnostics.
 
 ### Fixed
 - Ensured desktop update actions report unsupported states instead of failing silently in dev builds.
