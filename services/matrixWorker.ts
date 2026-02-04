@@ -2,11 +2,15 @@
 
 import {
     calculate,
-    calculateDeterminantOfOperation,
     calculateMatrixOperations,
     calculateRank,
     calculateTrace,
     numericEigen,
+    numericDeterminant,
+    numericNorm1,
+    numericNorm2,
+    numericNormFro,
+    numericNormInf,
     numericLU,
     numericQR,
     numericRank,
@@ -57,7 +61,16 @@ const buildAnalysisResult = (
         warnings.push('Trace is only defined for square matrices.');
     }
 
-    const result: MatrixAnalysisResult = { kind: 'analysis', mode: 'numeric', rank, trace, warnings };
+    const metrics: MatrixAnalysisResult['metrics'] = {
+        norm1: numericNorm1(numericMatrix),
+        normInf: numericNormInf(numericMatrix),
+        normFro: numericNormFro(numericMatrix)
+    };
+    if (numericMatrix.length === numericMatrix[0]?.length) {
+        metrics.determinant = numericDeterminant(numericMatrix);
+    }
+
+    const result: MatrixAnalysisResult = { kind: 'analysis', mode: 'numeric', rank, trace, warnings, metrics };
 
     if (analysisOptions.computeLU) {
         if (numericMatrix.length === numericMatrix[0]?.length) {
@@ -73,6 +86,20 @@ const buildAnalysisResult = (
 
     if (analysisOptions.computeSVD) {
         result.svd = numericSVD(numericMatrix);
+        const norm2 = numericNorm2(result.svd);
+        metrics.norm2 = norm2;
+        const minSingular = result.svd.singularValues.at(-1);
+        if (norm2 !== undefined && minSingular !== undefined) {
+            if (minSingular === 0) {
+                metrics.conditionNumber = Number.POSITIVE_INFINITY;
+                warnings.push('Matrix is singular; condition number is infinite.');
+            } else {
+                metrics.conditionNumber = norm2 / minSingular;
+                if (metrics.conditionNumber > 1e8) {
+                    warnings.push('Matrix appears ill-conditioned (condition number > 1e8).');
+                }
+            }
+        }
     }
 
     if (analysisOptions.computeEigen) {
@@ -95,11 +122,6 @@ const handleSystemSolver = (matrix: ValidMatrix, systemType: SystemType) => {
 const handleMatrixOperations = (expression: string, entries: [string, ValidMatrix][]) => {
     const matrices = mapEntriesToMap(entries);
     return calculateMatrixOperations(expression, matrices, { summarized: true });
-};
-
-const handleDeterminantOfOperation = (expression: string, entries: [string, ValidMatrix][]) => {
-    const matrices = mapEntriesToMap(entries);
-    return calculateDeterminantOfOperation(expression, matrices, { summarized: true });
 };
 
 const handleBatch = (payload: MatrixWorkerRequest & { type: 'batch' }) => {
@@ -166,9 +188,6 @@ self.onmessage = (event: MessageEvent<MatrixWorkerRequest>) => {
                 break;
             case 'matrixOperations':
                 result = handleMatrixOperations(message.payload.expression, message.payload.matrices);
-                break;
-            case 'determinantOfOperation':
-                result = handleDeterminantOfOperation(message.payload.expression, message.payload.matrices);
                 break;
             case 'batch':
                 result = handleBatch(message);

@@ -1,5 +1,5 @@
 import type { AnalysisMode, MatrixWorkerRequest, ValidMatrix } from '../types';
-import { stringifySymbolicFraction } from './matrixService';
+import { normalizeExpression, stringifySymbolicFraction } from './matrixService';
 
 const hashString = (value: string): string => {
     let hash = 5381;
@@ -61,12 +61,11 @@ export const hashWorkerRequest = (type: MatrixWorkerRequest['type'], payload: Ma
         case 'analysis':
             return hashString(`analysis|${hashMatrix(payload.matrix)}|${hashAnalysisOptions(payload.analysisMode, payload.analysisOptions)}`);
         case 'matrixOperations':
-            return hashString(`matrixOps|${payload.expression}|${hashMatrices(payload.matrices)}`);
-        case 'determinantOfOperation':
-            return hashString(`determinantOps|${payload.expression}|${hashMatrices(payload.matrices)}`);
+            return hashString(`matrixOps|${normalizeExpression(payload.expression)}|${hashMatrices(payload.matrices)}`);
         case 'batch': {
             const items = payload.items.map(item => `${item.id}:${hashMatrix(item.matrix)}`).sort();
-            return hashString(`batch|${payload.mode}|${payload.expression ?? ''}|${hashAnalysisOptions(payload.analysisMode, payload.analysisOptions)}|${items.join('|')}`);
+            const normalizedExpression = payload.expression ? normalizeExpression(payload.expression) : '';
+            return hashString(`batch|${payload.mode}|${normalizedExpression}|${hashAnalysisOptions(payload.analysisMode, payload.analysisOptions)}|${items.join('|')}`);
         }
         case 'details':
             return hashString(`details|${payload.section}|${payload.appMode}`);

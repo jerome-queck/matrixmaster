@@ -2,7 +2,7 @@ import React from 'react';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseInput } from '../../services/matrixService';
-import type { DeterminantOfOperationResult, ReportOptions, VariableAssumption } from '../../types';
+import type { CalculationResult, ReportOptions, VariableAssumption } from '../../types';
 
 const renderToString = vi.hoisted(() => vi.fn(() => '<span>ok</span>'));
 vi.mock('katex', () => ({
@@ -15,15 +15,24 @@ import { ReportView } from '../../components/ReportView';
 describe('ReportView', () => {
   it('escapes latex strings for assumptions and determinant', () => {
     const one = parseInput('1');
-    const results: DeterminantOfOperationResult = {
-      operationResult: { steps: [], finalResult: [[one]], conditions: [] },
+    const results: CalculationResult = {
+      systemType: 'homogeneous',
+      conditions: [],
+      gaussJordanSteps: [],
       determinant: {
         value: one,
         cofactorSteps: [],
         rowOpSteps: [],
         rowOpFinalCalculation: { description: '', equation: '' },
       },
-      conditions: [],
+      inverse: null,
+      rowSpaceBasis: null,
+      colSpaceBasis: null,
+      nullSpace: null,
+      homogeneousSolutionSet: null,
+      solutionSetRef: null,
+      solutionSetRref: null,
+      cramersRule: null,
     };
 
     const reportOptions: ReportOptions = {
@@ -42,8 +51,8 @@ describe('ReportView', () => {
     render(
       <ReportView
         results={results}
-        appMode="determinantOfOperation"
-        originalMatrix={null}
+        appMode="systemSolver"
+        originalMatrix={[[one]]}
         variableAssumptions={variableAssumptions}
         reportOptions={reportOptions}
       />

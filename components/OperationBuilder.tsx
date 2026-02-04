@@ -16,34 +16,50 @@ const PRESETS: Record<string, string> = {
     'Difference of Squares': '(A+B)*(A-B)',
 };
 
+const computeOperandDimensions = (
+    nodes: OperationNode[],
+    matrixDefs: Record<string, { rows: number | ''; cols: number | ''; matrix: any }>
+) => {
+    const dims = new Map<string, { rows: number; cols: number }>();
+    for (const name in matrixDefs) {
+        const def = matrixDefs[name];
+        const rows = typeof def.rows === 'number' ? def.rows : 0;
+        const cols = typeof def.cols === 'number' ? def.cols : 0;
+        if (rows > 0 && cols > 0) {
+            dims.set(`matrix-${name}`, { rows, cols });
+        }
+    }
+    nodes.forEach(node => {
+        const leftOp = node.left ? dims.get(`${node.left.type}-${node.left.value}`) : undefined;
+        const rightOpIsNumber = node.operation === '^' && node.right?.type === 'number';
+        const rightOp = node.right && !rightOpIsNumber ? dims.get(`${node.right.type}-${node.right.value}`) : undefined;
+
+        if (leftOp && (rightOp || rightOpIsNumber)) {
+            const rightArg = rightOpIsNumber ? parseInt(node.right!.value, 10) : rightOp!;
+            const { dims: resultDims } = getOperationResultDimensions(node.operation, leftOp, rightArg);
+            if (resultDims.rows > 0 && resultDims.cols > 0) {
+                dims.set(`result-${node.id}`, resultDims);
+            }
+        }
+    });
+    return dims;
+};
+
+const enforceFinalResultLabel = (nodes: OperationNode[]) => {
+    if (nodes.length === 0) return nodes;
+    return nodes.map((node, index) => {
+        const isLast = index === nodes.length - 1;
+        let resultName = node.resultName;
+        if (isLast) resultName = 'Final Result';
+        if (!isLast && resultName === 'Final Result') resultName = `Step ${index + 1}`;
+        return { ...node, resultName };
+    });
+};
+
 export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNodesChange, matrixDefs, setExpression }) => {
 
     const operandDimensions = useMemo(() => {
-        const dims = new Map<string, { rows: number; cols: number }>();
-        // Add defined matrices
-        for (const name in matrixDefs) {
-            const def = matrixDefs[name];
-            const rows = typeof def.rows === 'number' ? def.rows : 0;
-            const cols = typeof def.cols === 'number' ? def.cols : 0;
-            if (rows > 0 && cols > 0) {
-                dims.set(`matrix-${name}`, { rows, cols });
-            }
-        }
-        // Add results from previous steps
-        nodes.forEach(node => {
-            const leftOp = node.left ? dims.get(`${node.left.type}-${node.left.value}`) : undefined;
-            const rightOpIsNumber = node.operation === '^' && node.right?.type === 'number';
-            const rightOp = node.right && !rightOpIsNumber ? dims.get(`${node.right.type}-${node.right.value}`) : undefined;
-            
-            if(leftOp && (rightOp || rightOpIsNumber)) {
-                const rightArg = rightOpIsNumber ? parseInt(node.right!.value, 10) : rightOp!;
-                const { dims: resultDims } = getOperationResultDimensions(node.operation, leftOp, rightArg);
-                if(resultDims.rows > 0 && resultDims.cols > 0) {
-                    dims.set(`result-${node.id}`, resultDims);
-                }
-            }
-        });
-        return dims;
+        return computeOperandDimensions(nodes, matrixDefs);
     }, [nodes, matrixDefs]);
 
     // Calculate available operands for each step outside the map to follow Rules of Hooks.
@@ -57,23 +73,24 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
     }, [nodes, operandDimensions]);
 
     const updateAndValidateNodes = (updatedNodes: OperationNode[]) => {
+        const updatedOperandDimensions = computeOperandDimensions(updatedNodes, matrixDefs);
         const validatedNodes = updatedNodes.map(node => {
-            const leftOp = node.left ? operandDimensions.get(`${node.left.type}-${node.left.value}`) : undefined;
+            const leftOp = node.left ? updatedOperandDimensions.get(`${node.left.type}-${node.left.value}`) : undefined;
             const rightOpIsNumber = node.operation === '^' && node.right?.type === 'number';
-            const rightOp = node.right && !rightOpIsNumber ? operandDimensions.get(`${node.right.type}-${node.right.value}`) : undefined;
+            const rightOp = node.right && !rightOpIsNumber ? updatedOperandDimensions.get(`${node.right.type}-${node.right.value}`) : undefined;
 
             let error: string | null = null;
             if (node.left && node.right) {
-                 if (!leftOp) error = "Left operand is invalid or has unknown dimensions.";
-                 else if (!rightOp && !rightOpIsNumber) error = "Right operand is invalid or has unknown dimensions.";
-                 else {
+                if (!leftOp) error = "Left operand is invalid or has unknown dimensions.";
+                else if (!rightOp && !rightOpIsNumber) error = "Right operand is invalid or has unknown dimensions.";
+                else {
                     const rightArg = rightOpIsNumber ? parseInt(node.right!.value, 10) : rightOp!;
                     error = getOperationResultDimensions(node.operation, leftOp, rightArg).error;
-                 }
+                }
             }
             return { ...node, error };
         });
-        onNodesChange(validatedNodes);
+        onNodesChange(enforceFinalResultLabel(validatedNodes));
     };
 
     const handleAddNode = () => {
@@ -86,9 +103,6 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
             resultName: `Step ${nodes.length + 1}`
         };
         const newNodes = [...nodes, newNode];
-        if (newNodes.length > 0) {
-            newNodes.forEach((n, i) => n.resultName = i === newNodes.length - 1 ? 'Final Result' : `Step ${i + 1}`);
-        }
         updateAndValidateNodes(newNodes);
     };
 
@@ -113,10 +127,46 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
             if (n.right?.type === 'result' && n.right.value === id) { newN.right = null; changed = true; }
             return newN;
         });
-        if (cleanedNodes.length > 0) {
-             cleanedNodes.forEach((n, i) => n.resultName = i === cleanedNodes.length - 1 ? 'Final Result' : `Step ${i + 1}`);
-        }
         updateAndValidateNodes(cleanedNodes);
+    };
+
+    const handleMoveNode = (id: string, direction: -1 | 1) => {
+        const index = nodes.findIndex(n => n.id === id);
+        const nextIndex = index + direction;
+        if (index === -1 || nextIndex < 0 || nextIndex >= nodes.length) return;
+        const reordered = [...nodes];
+        const [moved] = reordered.splice(index, 1);
+        reordered.splice(nextIndex, 0, moved);
+        updateAndValidateNodes(reordered);
+    };
+
+    const handleDuplicateNode = (id: string) => {
+        const index = nodes.findIndex(n => n.id === id);
+        if (index === -1) return;
+        const source = nodes[index];
+        const newNode: OperationNode = {
+            ...source,
+            id: `T${Date.now()}`,
+        };
+        const updated = [...nodes];
+        updated.splice(index + 1, 0, newNode);
+        updateAndValidateNodes(updated);
+    };
+
+    const handleInsertAfter = (id: string) => {
+        const index = nodes.findIndex(n => n.id === id);
+        if (index === -1) return;
+        const newId = `T${Date.now()}`;
+        const newNode: OperationNode = {
+            id: newId,
+            operation: '*',
+            left: null,
+            right: null,
+            resultName: `Step ${index + 2}`
+        };
+        const updated = [...nodes];
+        updated.splice(index + 1, 0, newNode);
+        updateAndValidateNodes(updated);
     };
 
     const handleLoadPreset = (presetName: string) => {
@@ -152,9 +202,29 @@ export const OperationBuilder: React.FC<OperationBuilderProps> = ({ nodes, onNod
 
                         return (
                         <div key={node.id} className={`p-4 rounded-lg border transition-all ${node.error ? 'bg-red-500/10 border-red-500/40' : 'glass-panel'}`}>
-                            <div className="flex justify-between items-center mb-3">
-                                <input type="text" value={node.resultName} onChange={(e) => handleNodeChange(node.id, 'resultName', e.target.value)} className="font-bold text-lg bg-transparent text-primary focus:outline-none rounded px-1" />
-                                <button onClick={() => handleRemoveNode(node.id)} className="p-1 text-red-500 hover:bg-red-900/50 rounded-full" aria-label="Remove step"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
+                            <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                                <div className="flex items-center gap-3">
+                                    <input type="text" value={node.resultName} onChange={(e) => handleNodeChange(node.id, 'resultName', e.target.value)} className="font-bold text-lg bg-transparent text-primary focus:outline-none rounded px-1" />
+                                    <span className="text-xs text-secondary">
+                                        Result: {(() => {
+                                            const leftOp = node.left ? operandDimensions.get(`${node.left.type}-${node.left.value}`) : undefined;
+                                            const rightOpIsNumber = node.operation === '^' && node.right?.type === 'number';
+                                            const rightOp = node.right && !rightOpIsNumber ? operandDimensions.get(`${node.right.type}-${node.right.value}`) : undefined;
+                                            if (!leftOp || (!rightOp && !rightOpIsNumber)) return '?';
+                                            const rightArg = rightOpIsNumber ? parseInt(node.right!.value, 10) : rightOp!;
+                                            const dims = getOperationResultDimensions(node.operation, leftOp, rightArg).dims;
+                                            if (dims.rows <= 0 || dims.cols <= 0) return '?';
+                                            return `${dims.rows}x${dims.cols}`;
+                                        })()}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button onClick={() => handleMoveNode(node.id, -1)} disabled={index === 0} className="px-2 py-1 text-xs rounded-md glass-btn disabled:opacity-50" aria-label="Move step up">Up</button>
+                                    <button onClick={() => handleMoveNode(node.id, 1)} disabled={index === nodes.length - 1} className="px-2 py-1 text-xs rounded-md glass-btn disabled:opacity-50" aria-label="Move step down">Down</button>
+                                    <button onClick={() => handleDuplicateNode(node.id)} className="px-2 py-1 text-xs rounded-md glass-btn" aria-label="Duplicate step">Duplicate</button>
+                                    <button onClick={() => handleInsertAfter(node.id)} className="px-2 py-1 text-xs rounded-md glass-btn" aria-label="Insert step after">Insert</button>
+                                    <button onClick={() => handleRemoveNode(node.id)} className="p-1 text-red-500 hover:bg-red-900/50 rounded-full" aria-label="Remove step"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
+                                </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 {/* Left Operand */}

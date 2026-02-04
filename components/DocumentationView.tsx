@@ -63,7 +63,7 @@ const DocumentationView: React.FC<DocumentationViewProps> = ({ className }) => {
 
                 <DocSection id="quick-start" title="Quick Start">
                     <ol className="doc-list">
-                        <li>Choose a mode: System Solver, Matrix Operations, Determinant of Operation, or Analysis.</li>
+                        <li>Choose a mode: System Solver, Matrix Operations, or Analysis.</li>
                         <li>Enter or load matrices using the matrix grid.</li>
                         <li>Run Calculate or Analyze to generate results.</li>
                         <li>Press Cmd/Ctrl + K to open the Command Palette for quick actions.</li>
@@ -96,11 +96,6 @@ const DocumentationView: React.FC<DocumentationViewProps> = ({ className }) => {
                     <p>
                         Evaluate expressions like A * B, A^2 - C, or (A + B) * C. Use the text expression input
                         or the visual builder. Results include step-by-step multiplication details when requested.
-                    </p>
-                    <h3>Determinant of Operation</h3>
-                    <p>
-                        Compute the determinant of a matrix expression without expanding the full result. This
-                        is useful for symbolic reasoning and checking invertibility quickly.
                     </p>
                     <h3>Analysis</h3>
                     <p>

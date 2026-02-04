@@ -1,9 +1,9 @@
 import React from 'react';
-import type { AppMode, CalculationResult, DeterminantOfOperationResult, MatrixAnalysisResult, MatrixOperationsResult, NumberFormatOptions, ReportOptions, ValidMatrix, VariableAssumption } from '../types';
+import type { AppMode, CalculationResult, MatrixAnalysisResult, MatrixOperationsResult, NumberFormatOptions, ReportOptions, ValidMatrix, VariableAssumption } from '../types';
 import { LatexRenderer } from './LatexRenderer';
 import { formatAugmentedMatrixToLatex, formatMatrixToLatex, formatNumericMatrixToLatex, formatNumberToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex } from '../services/matrixService';
 
-type AnyResult = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
+type AnyResult = CalculationResult | MatrixOperationsResult | MatrixAnalysisResult;
 
 interface ReportViewProps {
     title?: string;
@@ -91,8 +91,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
     } else if (appMode === 'matrixOperations') {
         toc.push('Operation Result');
         if (reportOptions.includeSteps) toc.push('Operation Steps');
-    } else if (appMode === 'determinantOfOperation') {
-        toc.push('Operation Result', 'Determinant');
     } else {
         toc.push('Input Matrix', 'Determinant', 'Matrix Inverse', 'Row/Column/Null Space', 'Solutions');
     }
@@ -143,11 +141,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
                             <p>Operation completed. Final result below.</p>
                         </div>
                     )}
-                    {appMode === 'determinantOfOperation' && (
-                        <div className="report-summary">
-                            <p>Determinant of operation computed.</p>
-                        </div>
-                    )}
                     {appMode === 'systemSolver' && (
                         <div className="report-summary">
                             <p>System type: {(results as CalculationResult).systemType}</p>
@@ -188,6 +181,28 @@ export const ReportView: React.FC<ReportViewProps> = ({
                                     {res.mode === 'numeric' && res.eigen && (
                                         <LatexBlock latex={`\\lambda = ${formatNumericMatrixToLatex([res.eigen.values], numberFormat)}`} />
                                     )}
+                                    {res.metrics && (
+                                        <div className="report-metrics">
+                                            {res.metrics.determinant !== undefined && (
+                                                <LatexRenderer latex={`\\det(A) = ${formatNumberToLatex(res.metrics.determinant, numberFormat)}`} displayMode={false} />
+                                            )}
+                                            {res.metrics.norm1 !== undefined && (
+                                                <LatexRenderer latex={`\\lVert A \\rVert_1 = ${formatNumberToLatex(res.metrics.norm1, numberFormat)}`} displayMode={false} />
+                                            )}
+                                            {res.metrics.normInf !== undefined && (
+                                                <LatexRenderer latex={`\\lVert A \\rVert_{\\infty} = ${formatNumberToLatex(res.metrics.normInf, numberFormat)}`} displayMode={false} />
+                                            )}
+                                            {res.metrics.normFro !== undefined && (
+                                                <LatexRenderer latex={`\\lVert A \\rVert_F = ${formatNumberToLatex(res.metrics.normFro, numberFormat)}`} displayMode={false} />
+                                            )}
+                                            {res.metrics.norm2 !== undefined && (
+                                                <LatexRenderer latex={`\\lVert A \\rVert_2 = ${formatNumberToLatex(res.metrics.norm2, numberFormat)}`} displayMode={false} />
+                                            )}
+                                            {res.metrics.conditionNumber !== undefined && (
+                                                <LatexRenderer latex={`\\kappa(A) = ${Number.isFinite(res.metrics.conditionNumber) ? formatNumberToLatex(res.metrics.conditionNumber, numberFormat) : '\\\\infty'}`} displayMode={false} />
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })()}
@@ -203,18 +218,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 {appMode === 'matrixOperations' && reportOptions.includeSteps && (
                     <Section title="Operation Steps">
                         {renderMatrixSteps((results as MatrixOperationsResult).steps, reportOptions.includeDetails, reportOptions.includeTutorNotes)}
-                    </Section>
-                )}
-
-                {appMode === 'determinantOfOperation' && (
-                    <Section title="Operation Result">
-                        <LatexBlock latex={formatMatrixToLatex((results as DeterminantOfOperationResult).operationResult.finalResult)} />
-                    </Section>
-                )}
-
-                {appMode === 'determinantOfOperation' && (
-                    <Section title="Determinant">
-                        <LatexBlock latex={`\\det = ${formatSymbolicFractionToLatex((results as DeterminantOfOperationResult).determinant.value)}`} />
                     </Section>
                 )}
 
