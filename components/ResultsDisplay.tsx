@@ -553,7 +553,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
     );
 };
 
-const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDisplayProps> = ({ determinant, onToggleSection, openSections, collapsedSections, toggleDetailsVisibility, handleRequestAndShowDetails, onExplain, loadingDetails }) => {
+const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDisplayProps> = ({ determinant, onToggleSection, openSections, collapsedSections, toggleDetailsVisibility, handleRequestAndShowDetails, onExplain, loadingDetails, onCancelDetails }) => {
     const sectionName = "Determinant";
     const detailsExist = !!determinant.cofactorSteps && determinant.cofactorSteps.length > 0;
     const cofactorSectionName = "Method 1: Cofactor Expansion";
@@ -575,7 +575,7 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
             detailsExist={detailsExist}
             onCalculate={handleRequestAndShowDetails}
             loadingDetails={loadingDetails}
-            onCancel={props.onCancelDetails}
+            onCancel={onCancelDetails}
         />
         
         {detailsExist && (
@@ -601,7 +601,7 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
     </ResultSection>
 )};
 
-const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, onToggleSection, openSections, onUseResult, handleRequestAndShowDetails, collapsedSections, toggleDetailsVisibility, loadingDetails, formatMatrixCached }) => {
+const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, onUseResult: (matrix: ValidMatrix) => void } & SharedDisplayProps> = ({ result, onToggleSection, openSections, onUseResult, handleRequestAndShowDetails, collapsedSections, toggleDetailsVisibility, loadingDetails, formatMatrixCached, onCancelDetails }) => {
     const [stepsOpen, setStepsOpen] = React.useState(true);
     const sectionNameForWorkings = (index: number) => `op-workings-${index}`;
 
@@ -632,12 +632,12 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                 )}
 
                 {!detailsExist && (
-                     <DetailsToggleButton 
+                 <DetailsToggleButton 
                         sectionName={workingsSectionName}
                         detailsExist={false}
                         onCalculate={() => handleRequestAndShowDetails("matrixOperations")}
                         loadingDetails={loadingDetails}
-                        onCancel={props.onCancelDetails}
+                        onCancel={onCancelDetails}
                     >Show Workings</DetailsToggleButton>
                 )}
                 
@@ -837,7 +837,7 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
 };
 
 const StepsSection: React.FC<{ sectionName: string, steps: RowOperationStep[], formName: string, systemType: SystemType, summaryMessage?: string } & SharedDisplayProps> = 
-({ sectionName, steps, formName, systemType, summaryMessage, collapsedSections, toggleDetailsVisibility, handleRequestAndShowDetails, loadingDetails, tutorMode, onInfo }) => {
+({ sectionName, steps, formName, systemType, summaryMessage, collapsedSections, toggleDetailsVisibility, handleRequestAndShowDetails, loadingDetails, onCancelDetails, tutorMode, onInfo }) => {
     const detailsExist = steps.every(step => step.matrix);
     const isCollapsed = !!collapsedSections[sectionName];
 
@@ -845,11 +845,11 @@ const StepsSection: React.FC<{ sectionName: string, steps: RowOperationStep[], f
         <>
             <DetailsToggleButton
                 sectionName={sectionName}
-                detailsExist={detailsExist}
-                onCalculate={handleRequestAndShowDetails}
-                loadingDetails={loadingDetails}
-                onCancel={props.onCancelDetails}
-            />
+            detailsExist={detailsExist}
+            onCalculate={handleRequestAndShowDetails}
+            loadingDetails={loadingDetails}
+            onCancel={onCancelDetails}
+        />
             {detailsExist && (
                 <>
                     <button onClick={() => toggleDetailsVisibility(sectionName)} className="mt-4 flex justify-center w-full text-sm text-indigo-500 hover:text-indigo-600 font-medium">
@@ -969,7 +969,8 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         setStepsCollapsed(shouldCollapseSteps);
     }, [shouldCollapseSteps]);
     
-    const rowHasChanged = (rowA: SymbolicFraction[], rowB: SymbolicFraction[]) => {
+    const rowHasChanged = (rowA: SymbolicFraction[] | undefined, rowB: SymbolicFraction[] | undefined) => {
+        if (!rowA || !rowB) return false;
         if (rowA.length !== rowB.length) return true;
         for (let i = 0; i < rowA.length; i++) {
             if (!areSFEqual(rowA[i], rowB[i])) return true;
@@ -1046,7 +1047,9 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         const verify = verifyResults[index];
         const rowProvider = (r: number) => {
             if (verify && verify.mismatches.includes(r)) return 'bg-red-200/60';
-            if (highlightDiff && step.matrixBefore && rowHasChanged(step.matrixBefore![r], step.matrix![r])) return 'bg-amber-100/60';
+            if (highlightDiff && step.matrixBefore && step.matrix && rowHasChanged(step.matrixBefore[r], step.matrix[r])) {
+                return 'bg-amber-100/60';
+            }
             return '';
         };
         return (
@@ -1100,7 +1103,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                 matrix={step.matrixBefore}
                                 latex={matrixFormatter(step.matrixBefore)}
                                 title="Matrix Before"
-                                rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
+                                rowClassProvider={(r) => {
+                                    if (!step.matrixBefore || !step.matrix) return '';
+                                    return rowHasChanged(step.matrixBefore[r], step.matrix[r]) ? 'bg-cyan-100/50' : '';
+                                }}
                                 lazy={lazy}
                             />
                         )}
@@ -1112,7 +1118,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                 matrix={step.matrix}
                                 latex={matrixFormatter(step.matrix)}
                                 title="Matrix After"
-                                rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
+                                rowClassProvider={(r) => {
+                                    if (!step.matrixBefore || !step.matrix) return '';
+                                    return rowHasChanged(step.matrixBefore[r], step.matrix[r]) ? 'bg-cyan-100/50' : '';
+                                }}
                                 lazy={lazy}
                             />
                         )}
@@ -1253,7 +1262,9 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                                         latex={matrixFormatter(actualSteps[timelineIndex].matrix!)}
                                         title="Step Matrix"
                                         lazy={shouldVirtualizeSteps}
-                                        rowClassProvider={highlightDiff && actualSteps[timelineIndex].matrixBefore ? (r) => rowHasChanged(actualSteps[timelineIndex].matrixBefore![r], actualSteps[timelineIndex].matrix![r]) ? 'bg-amber-100/60' : '' : undefined}
+                                        rowClassProvider={highlightDiff && actualSteps[timelineIndex].matrixBefore && actualSteps[timelineIndex].matrix
+                                            ? (r) => rowHasChanged(actualSteps[timelineIndex].matrixBefore![r], actualSteps[timelineIndex].matrix![r]) ? 'bg-amber-100/60' : ''
+                                            : undefined}
                                     />
                                 </div>
                             )}
