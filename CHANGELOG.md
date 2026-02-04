@@ -27,6 +27,21 @@ Source of truth:
 
 ### Security
 
+## 1.0.5 - 2026-02-04
+### Added
+
+### Changed
+
+### Fixed
+- Prevented calculation views from crashing when summarized row-operation steps omit matrices.
+- Fixed result detail panels referencing an undefined `props` value during rendering.
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.0.4 - 2026-02-04
 ### Added
 
