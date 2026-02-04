@@ -36,6 +36,7 @@ Source of truth:
 ### Fixed
 - Ensured desktop update actions report unsupported states instead of failing silently in dev builds.
 - Made desktop updates manual to align with the UI-driven flow.
+- Prevented Windows installs from failing on macOS-only `dmg-license`.
 
 ### Deprecated
 
