@@ -21,7 +21,8 @@ export const createLruCache = <T>(limit: number) => {
     };
 
     const has = (key: string) => cache.has(key);
+    const remove = (key: string) => cache.delete(key);
+    const clear = () => cache.clear();
 
-    return { get, set, has, size: () => cache.size };
+    return { get, set, has, remove, clear, size: () => cache.size };
 };
-

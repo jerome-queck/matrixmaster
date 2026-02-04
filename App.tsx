@@ -231,6 +231,7 @@ const App: React.FC = () => {
     const [shareButtonText, setShareButtonText] = useState('Share File');
     const [isShareOpen, setShareOpen] = useState(false);
     const [resultsKey, setResultsKey] = useState<number>(Date.now());
+    const DETAIL_CACHE_LIMIT = 30;
     const detailCacheRef = useRef<Map<string, { determinant?: DeterminantResult; inverse?: InverseResult }>>(new Map());
     const keyCounter = useRef(0);
     const nextKey = () => {
@@ -261,7 +262,7 @@ const App: React.FC = () => {
         </button>
     );
 
-    const { runWorkerRequest } = useMatrixWorker();
+    const { runWorkerRequest, cancelGroup } = useMatrixWorker();
     const showComputeIndicator = useDelayedFlag(isLoading, 200);
 
     // System Solver State
@@ -306,6 +307,7 @@ const App: React.FC = () => {
     const [isSettingsOpen, setSettingsOpen] = useState(false);
     const [isHistoryOpen, setHistoryOpen] = useState(false);
     const [snapshotName, setSnapshotName] = useState('');
+    const HISTORY_LIMIT = 100;
     const [history, setHistory] = useState<HistorySnapshot[]>([]);
     const [historyIndex, setHistoryIndex] = useState<number>(-1);
     const [autoSnapshotOnCalculate, setAutoSnapshotOnCalculate] = useState(true);
@@ -520,13 +522,14 @@ const App: React.FC = () => {
         try {
             const savedHistory = getItem('history');
             const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
-            setHistory(parsedHistory);
+            const trimmedHistory = Array.isArray(parsedHistory) ? parsedHistory.slice(-HISTORY_LIMIT) : [];
+            setHistory(trimmedHistory);
             const savedIndex = getItem('historyIndex');
             if (savedIndex !== null) {
                 const idx = parseInt(savedIndex, 10);
-                setHistoryIndex(Number.isFinite(idx) ? Math.min(idx, parsedHistory.length - 1) : (parsedHistory.length > 0 ? parsedHistory.length - 1 : -1));
+                setHistoryIndex(Number.isFinite(idx) ? Math.min(idx, trimmedHistory.length - 1) : (trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1));
             } else {
-                setHistoryIndex(parsedHistory.length > 0 ? parsedHistory.length - 1 : -1);
+                setHistoryIndex(trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1);
             }
         } catch (e) { console.error("Failed to load history", e); setHistory([]); setHistoryIndex(-1); }
 
@@ -726,7 +729,15 @@ const App: React.FC = () => {
         return;
     }, [updateStatus.state]);
 
+    const updateCooldownRef = useRef<number>(0);
+    const UPDATE_COOLDOWN_MS = 30_000;
     const handleCheckForUpdates = () => {
+        const now = Date.now();
+        if (now - updateCooldownRef.current < UPDATE_COOLDOWN_MS) {
+            pushToast('Please wait a moment before checking again.', 'info');
+            return;
+        }
+        updateCooldownRef.current = now;
         window.electronAPI?.checkForUpdates?.().catch((err: any) => reportError('Update check failed.', err));
     };
 
@@ -1506,8 +1517,9 @@ const App: React.FC = () => {
         };
         setHistory(prev => {
             const next = [...prev.slice(0, historyIndex + 1), snapshot];
-            setHistoryIndex(next.length - 1);
-            return next;
+            const trimmed = next.slice(-HISTORY_LIMIT);
+            setHistoryIndex(trimmed.length - 1);
+            return trimmed;
         });
         setSnapshotName('');
     };
@@ -2165,10 +2177,17 @@ const App: React.FC = () => {
         setShareOpen(true);
     };
 
+    const handleCancelCalculation = () => {
+        cancelGroup('calculate', { terminate: true, reason: 'Calculation canceled.' });
+        setIsLoading(false);
+        setError('Calculation canceled.');
+    };
+
     async function handleCalculate() {
         setResultsKey(prev => prev + 1);
         setError(null);
         setIsLoading(true);
+        setLoadingDetails(null);
         setResults(null);
         setOpenSections({});
         try {
@@ -2209,7 +2228,13 @@ const App: React.FC = () => {
                 }
             }
         } catch (e) {
-            if (e instanceof Error) setError(e.message);
+            if (e instanceof Error) {
+                if (e.message === 'Calculation canceled.') {
+                    setError(e.message);
+                } else {
+                    setError(e.message);
+                }
+            }
             else setError("An unknown error occurred during calculation.");
         } finally {
             setIsLoading(false);
@@ -2271,6 +2296,11 @@ const App: React.FC = () => {
                     entry.inverse = (newResults as CalculationResult).inverse as InverseResult;
                 }
                 detailCacheRef.current.set(cacheKey, entry);
+                while (detailCacheRef.current.size > DETAIL_CACHE_LIMIT) {
+                    const oldest = detailCacheRef.current.keys().next().value;
+                    if (!oldest) break;
+                    detailCacheRef.current.delete(oldest);
+                }
             }
             startTransition(() => setResults(newResults as AnyResult));
             setOpenSections(prev => ({ ...prev, [section]: true }));
@@ -2816,6 +2846,11 @@ const App: React.FC = () => {
             {(appMode === 'systemSolver' && solverMatrix) || (appMode === 'analysis' && analysisMatrix) || (appMode !== 'systemSolver' && appMode !== 'analysis' && matrixNamesInExpression.length > 0) ? (
                 <div className={`grid grid-cols-1 ${appMode === 'analysis' ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4 mt-6`}>
                     <button onClick={handleCalculate} disabled={isLoading} className="flex items-center justify-center glass-btn glass-btn-primary font-bold py-3 px-6 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>{isLoading ? (appMode === 'analysis' ? 'Analyzing...' : 'Calculating...') : (appMode === 'analysis' ? 'Analyze' : 'Calculate')}</button>
+                    {isLoading && (
+                        <button onClick={handleCancelCalculation} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl">
+                            Cancel
+                        </button>
+                    )}
                     {appMode !== 'analysis' && (
                         <button onClick={handleShare} className="flex items-center justify-center glass-btn font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>{shareButtonText}</button>
                     )}
@@ -2830,7 +2865,7 @@ const App: React.FC = () => {
 
     const resultsPanel = results ? (
         <div className="print-area">
-            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} />
+            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onCancelDetails={() => { cancelGroup('details', { terminate: true, reason: 'Detail calculation canceled.' }); setLoadingDetails(null); }} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} />
         </div>
     ) : null;
 

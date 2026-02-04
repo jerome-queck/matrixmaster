@@ -30,4 +30,20 @@ describe('hash utilities', () => {
 
     expect(hashWorkerRequest('analysis', payload)).toBe(hashWorkerRequest('analysis', payload));
   });
+
+  it('changes hash when analysis options change', () => {
+    const matrix = makeMatrix([[1, 0], [0, 1]]);
+    const payloadA: MatrixWorkerRequest['payload'] = {
+      matrix,
+      analysisMode: 'numeric',
+      analysisOptions: { computeLU: true, computeQR: false, computeSVD: true, computeEigen: false },
+    };
+    const payloadB: MatrixWorkerRequest['payload'] = {
+      matrix,
+      analysisMode: 'numeric',
+      analysisOptions: { computeLU: false, computeQR: false, computeSVD: true, computeEigen: false },
+    };
+
+    expect(hashWorkerRequest('analysis', payloadA)).not.toBe(hashWorkerRequest('analysis', payloadB));
+  });
 });

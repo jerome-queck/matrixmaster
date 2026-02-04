@@ -19,6 +19,7 @@ interface ResultsDisplayProps {
     openSections: Record<string, boolean>;
     onToggleSection: (section: string) => void;
     onRequestDetails: (section: string, payload?: any) => void;
+    onCancelDetails?: (section: string) => void;
     onUseResult: (matrix: ValidMatrix) => void;
     loadingDetails: string | null;
     onExplain: (topic: string) => void;
@@ -206,10 +207,11 @@ const DetailsToggleButton: React.FC<{
     detailsExist: boolean;
     onCalculate: (section: string, payload?: any) => void;
     loadingDetails: string | null;
+    onCancel?: (section: string) => void;
     payload?: any;
     onClick?: () => void;
     children?: React.ReactNode;
-}> = ({ sectionName, detailsExist, onCalculate, loadingDetails, payload, onClick, children }) => {
+}> = ({ sectionName, detailsExist, onCalculate, loadingDetails, onCancel, payload, onClick, children }) => {
     
     const isLoadingThis = loadingDetails === sectionName;
 
@@ -230,7 +232,7 @@ const DetailsToggleButton: React.FC<{
     };
     
     return (
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-center gap-2">
             <button
                 onClick={handleClick}
                 disabled={!!loadingDetails}
@@ -238,13 +240,34 @@ const DetailsToggleButton: React.FC<{
             >
                 {buttonContent}
             </button>
+            {isLoadingThis && onCancel && (
+                <button
+                    type="button"
+                    onClick={() => onCancel(sectionName)}
+                    className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-2 px-4 rounded-lg text-sm"
+                >
+                    Cancel
+                </button>
+            )}
         </div>
     );
 };
 
+type MatrixLike = { length: number; [index: number]: { length: number } };
+
+const LARGE_MATRIX_THRESHOLD = 8;
+const MATRIX_MAX_HEIGHT = '60vh';
+const needsVerticalScroll = (matrix?: MatrixLike | null) => (matrix?.length ?? 0) > LARGE_MATRIX_THRESHOLD;
+const isLargeMatrix = (matrix?: MatrixLike | null) => {
+    if (!matrix || matrix.length === 0) return false;
+    const rows = matrix.length;
+    const cols = matrix[0]?.length ?? 0;
+    return rows > LARGE_MATRIX_THRESHOLD || cols > LARGE_MATRIX_THRESHOLD;
+};
+
 // A robust wrapper for making LaTeX content scrollable
-const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true }) => (
-    <div className="overflow-x-auto w-full p-2 flex justify-center relative">
+const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean, allowYScroll?: boolean, maxHeight?: string}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true, allowYScroll = false, maxHeight }) => (
+    <div className={`overflow-x-auto w-full p-2 flex justify-center relative ${allowYScroll ? 'overflow-y-auto' : ''}`} style={allowYScroll && maxHeight ? { maxHeight } : undefined}>
       {showCopy && (
         <button
           className="absolute right-2 top-2 px-2 py-1 rounded-md text-xs glass-btn"
@@ -259,6 +282,68 @@ const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassP
       </div>
     </div>
 );
+
+const MatrixModal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; latex: string; }> = ({ isOpen, onClose, title, latex }) => {
+    if (!isOpen) return null;
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="matrix-modal-title"
+        >
+            <div
+                className="rounded-2xl shadow-xl w-full max-w-5xl m-4 p-6 text-ink glass-panel"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center mb-4">
+                    <h2 id="matrix-modal-title" className="text-xl font-bold">{title}</h2>
+                    <button
+                        onClick={onClose}
+                        className="text-secondary hover:text-ink transition-colors"
+                        aria-label="Close matrix preview"
+                    >
+                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <ScrollableLatex latex={latex} allowYScroll={true} maxHeight="75vh" />
+            </div>
+        </div>
+    );
+};
+
+const MatrixReveal: React.FC<{
+    matrix?: MatrixLike | null;
+    latex: string;
+    title?: string;
+    rowClassProvider?: (r: number) => string;
+    lazy?: boolean;
+}> = ({ matrix, latex, title = 'Full Matrix', rowClassProvider, lazy }) => {
+    const [isOpen, setIsOpen] = React.useState(false);
+    if (!matrix) return null;
+    if (isLargeMatrix(matrix)) {
+        return (
+            <div className="flex flex-col items-center gap-2 w-full">
+                <button onClick={() => setIsOpen(true)} className="px-3 py-2 rounded-lg glass-btn text-sm">
+                    View Full Matrix
+                </button>
+                <MatrixModal isOpen={isOpen} onClose={() => setIsOpen(false)} title={title} latex={latex} />
+            </div>
+        );
+    }
+    return (
+        <ScrollableLatex
+            latex={latex}
+            rowClassProvider={rowClassProvider}
+            lazy={lazy}
+            allowYScroll={needsVerticalScroll(matrix)}
+            maxHeight={MATRIX_MAX_HEIGHT}
+        />
+    );
+};
 
 const AssumptionSteps: React.FC<{ condition: SymbolicFraction }> = ({ condition }) => {
     const steps = generateAssumptionSteps(condition);
@@ -337,7 +422,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
         <div className="space-y-4">
             {analysisMatrix && (
                 <ResultSection title="Input Matrix" isOpen={isOpen("Input Matrix")} onToggle={() => toggleSection("Input Matrix")}>
-                    <ScrollableLatex latex={formatMatrixCached(analysisMatrix)} />
+                    <MatrixReveal matrix={analysisMatrix} latex={formatMatrixCached(analysisMatrix)} title="Analysis Matrix" />
                 </ResultSection>
             )}
             <ResultSection title="Summary" isOpen={isOpen("Summary")} onToggle={() => toggleSection("Summary")}>
@@ -385,11 +470,15 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                         {showRounding && (
                             <div>
                                 <div className="text-xs text-secondary mb-1">Rounded matrix (by number format)</div>
-                                <LatexRenderer latex={formatNumericMatrixCached(numericMatrix.map(row => row.map(v => {
-                                    const digits = numberFormat?.digits ?? 6;
-                                    const factor = Math.pow(10, digits);
-                                    return Math.round(v * factor) / factor;
-                                })), numberFormat)} />
+                                <MatrixReveal
+                                    matrix={numericMatrix}
+                                    latex={formatNumericMatrixCached(numericMatrix.map(row => row.map(v => {
+                                        const digits = numberFormat?.digits ?? 6;
+                                        const factor = Math.pow(10, digits);
+                                        return Math.round(v * factor) / factor;
+                                    })), numberFormat)}
+                                    title="Rounded Matrix"
+                                />
                             </div>
                         )}
                     </div>
@@ -400,9 +489,9 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="LU Decomposition" isOpen={isOpen("LU Decomposition")} onToggle={() => toggleSection("LU Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">Permutation matrix P, lower L, and upper U such that P·A = L·U.</p>
-                        <ScrollableLatex latex={`P = ${formatNumericMatrixCached(result.lu.P, numberFormat)}`} />
-                        <ScrollableLatex latex={`L = ${formatNumericMatrixCached(result.lu.L, numberFormat)}`} />
-                        <ScrollableLatex latex={`U = ${formatNumericMatrixCached(result.lu.U, numberFormat)}`} />
+                        <MatrixReveal matrix={result.lu.P} latex={`P = ${formatNumericMatrixCached(result.lu.P, numberFormat)}`} title="LU Decomposition (P)" />
+                        <MatrixReveal matrix={result.lu.L} latex={`L = ${formatNumericMatrixCached(result.lu.L, numberFormat)}`} title="LU Decomposition (L)" />
+                        <MatrixReveal matrix={result.lu.U} latex={`U = ${formatNumericMatrixCached(result.lu.U, numberFormat)}`} title="LU Decomposition (U)" />
                     </div>
                 </ResultSection>
             )}
@@ -411,8 +500,8 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="QR Decomposition" isOpen={isOpen("QR Decomposition")} onToggle={() => toggleSection("QR Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">Q has orthonormal columns, and A = Q·R.</p>
-                        <ScrollableLatex latex={`Q = ${formatNumericMatrixCached(result.qr.Q, numberFormat)}`} />
-                        <ScrollableLatex latex={`R = ${formatNumericMatrixCached(result.qr.R, numberFormat)}`} />
+                        <MatrixReveal matrix={result.qr.Q} latex={`Q = ${formatNumericMatrixCached(result.qr.Q, numberFormat)}`} title="QR Decomposition (Q)" />
+                        <MatrixReveal matrix={result.qr.R} latex={`R = ${formatNumericMatrixCached(result.qr.R, numberFormat)}`} title="QR Decomposition (R)" />
                     </div>
                 </ResultSection>
             )}
@@ -421,9 +510,9 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                 <ResultSection title="Singular Value Decomposition" isOpen={isOpen("Singular Value Decomposition")} onToggle={() => toggleSection("Singular Value Decomposition")}>
                     <div className="space-y-3">
                         <p className="text-secondary break-words">A = U·S·Vᵀ (economy SVD).</p>
-                        <ScrollableLatex latex={`U = ${formatNumericMatrixCached(result.svd.U, numberFormat)}`} />
-                        <ScrollableLatex latex={`S = ${formatNumericMatrixCached(result.svd.S, numberFormat)}`} />
-                        <ScrollableLatex latex={`V^T = ${formatNumericMatrixCached(result.svd.Vt, numberFormat)}`} />
+                        <MatrixReveal matrix={result.svd.U} latex={`U = ${formatNumericMatrixCached(result.svd.U, numberFormat)}`} title="SVD (U)" />
+                        <MatrixReveal matrix={result.svd.S} latex={`S = ${formatNumericMatrixCached(result.svd.S, numberFormat)}`} title="SVD (S)" />
+                        <MatrixReveal matrix={result.svd.Vt} latex={`V^T = ${formatNumericMatrixCached(result.svd.Vt, numberFormat)}`} title="SVD (V^T)" />
                         <div className="text-secondary text-sm">
                             <span className="font-semibold">Singular values:</span>{' '}
                             <LatexRenderer latex={vectorToLatex(result.svd.singularValues)} displayMode={false} />
@@ -443,7 +532,7 @@ const AnalysisResultDisplay: React.FC<{ result: MatrixAnalysisResult; analysisMa
                             <LatexRenderer latex={vectorToLatex(result.eigen.values)} displayMode={false} />
                         </div>
                         {result.eigen.vectors && (
-                            <ScrollableLatex latex={`V = ${formatNumericMatrixCached(result.eigen.vectors, numberFormat)}`} />
+                            <MatrixReveal matrix={result.eigen.vectors} latex={`V = ${formatNumericMatrixCached(result.eigen.vectors, numberFormat)}`} title="Eigenvectors" />
                         )}
                         <div className="text-xs text-secondary">Iterations: {result.eigen.iterations} · {result.eigen.converged ? 'Converged' : 'Max iterations reached'}</div>
                     </div>
@@ -475,6 +564,7 @@ const DeterminantDisplay: React.FC<{ determinant: DeterminantResult } & SharedDi
             detailsExist={detailsExist}
             onCalculate={handleRequestAndShowDetails}
             loadingDetails={loadingDetails}
+            onCancel={props.onCancelDetails}
         />
         
         {detailsExist && (
@@ -517,7 +607,9 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                 <div className="flex flex-col items-center text-primary w-full">
                     <div className="mt-1 px-3 py-1 glass-panel rounded-md shadow-inner text-center w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 </div>
-                <div className="glass-panel p-2 rounded-lg my-2 w-full"><ScrollableLatex latex={`= ${formatMatrixCached(step.result)}`} /></div>
+                <div className="glass-panel p-2 rounded-lg my-2 w-full">
+                    <MatrixReveal matrix={step.result} latex={`= ${formatMatrixCached(step.result)}`} title="Operation Result" />
+                </div>
                 
                 {detailsExist && (
                      <button
@@ -534,6 +626,7 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
                         detailsExist={false}
                         onCalculate={() => handleRequestAndShowDetails("matrixOperations")}
                         loadingDetails={loadingDetails}
+                        onCancel={props.onCancelDetails}
                     >Show Workings</DetailsToggleButton>
                 )}
                 
@@ -541,7 +634,14 @@ const MatrixOperationsResultDisplay: React.FC<{ result: MatrixOperationsResult, 
             </div>
             )
         })}</div></ResultSection>
-        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}><div className="p-4 glass-panel rounded-lg w-full"><ScrollableLatex latex={formatMatrixCached(result.finalResult)} /></div><div className="mt-4 flex justify-end"><button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button></div></ResultSection>
+        <ResultSection title="Final Result" isOpen={true} onToggle={() => {}}>
+            <div className="p-4 glass-panel rounded-lg w-full">
+                <MatrixReveal matrix={result.finalResult} latex={formatMatrixCached(result.finalResult)} title="Final Result" />
+            </div>
+            <div className="mt-4 flex justify-end">
+                <button onClick={() => onUseResult(result.finalResult)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Use Result...</button>
+            </div>
+        </ResultSection>
     </div>
 )};
 
@@ -587,7 +687,9 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 onToggleSection(refSectionName);
             }} onExplain={props.onExplain}>
                 <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} /></div>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6">
+                    <MatrixReveal matrix={finalRefMatrix} latex={formatAugmentedMatrixToLatex(finalRefMatrix, calcResults.systemType)} title="Final REF" />
+                </div>
                 <StepsSection sectionName={refSectionName} steps={refSteps} formName="Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -601,7 +703,9 @@ const SystemSolverResultDisplay: React.FC<SharedDisplayProps> = (props) => {
                 onToggleSection(rrefSectionName);
             }} onExplain={props.onExplain}>
                 <p className="text-secondary mb-2 font-semibold break-words">Final Matrix:</p>
-                <div className="p-4 glass-panel rounded-lg w-full mb-6"><ScrollableLatex latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} /></div>
+                <div className="p-4 glass-panel rounded-lg w-full mb-6">
+                    <MatrixReveal matrix={finalRrefMatrix} latex={formatAugmentedMatrixToLatex(finalRrefMatrix, calcResults.systemType)} title="Final RREF" />
+                </div>
                  <StepsSection sectionName={rrefSectionName} steps={rrefSteps} formName="Reduced Row Echelon Form" systemType={calcResults.systemType} summaryMessage={calcResults.summaryMessage} {...props} />
             </ResultSection>
 
@@ -731,6 +835,7 @@ const StepsSection: React.FC<{ sectionName: string, steps: RowOperationStep[], f
                 detailsExist={detailsExist}
                 onCalculate={handleRequestAndShowDetails}
                 loadingDetails={loadingDetails}
+                onCancel={props.onCancelDetails}
             />
             {detailsExist && (
                 <>
@@ -831,6 +936,25 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
     const actualSteps = isFirstStepAPlaceholder ? steps.slice(1) : steps;
 
     const matrixFormatter = (m: ValidMatrix) => isAugmented ? formatAugmentedMatrixToLatex(m, systemType, augmentedCols) : props.formatMatrixCached(m);
+
+    const maxMatrixRows = React.useMemo(() => {
+        const sizes = actualSteps.map(step => step.matrix?.length ?? step.matrixBefore?.length ?? 0);
+        const initialSize = initialMatrix?.length ?? 0;
+        return Math.max(initialSize, ...sizes);
+    }, [actualSteps, initialMatrix]);
+
+    const maxMatrixCols = React.useMemo(() => {
+        const sizes = actualSteps.map(step => step.matrix?.[0]?.length ?? step.matrixBefore?.[0]?.length ?? 0);
+        const initialSize = initialMatrix?.[0]?.length ?? 0;
+        return Math.max(initialSize, ...sizes);
+    }, [actualSteps, initialMatrix]);
+
+    const shouldCollapseSteps = actualSteps.length > 40 || maxMatrixRows > LARGE_MATRIX_THRESHOLD || maxMatrixCols > LARGE_MATRIX_THRESHOLD;
+    const [stepsCollapsed, setStepsCollapsed] = React.useState(shouldCollapseSteps);
+
+    React.useEffect(() => {
+        setStepsCollapsed(shouldCollapseSteps);
+    }, [shouldCollapseSteps]);
     
     const rowHasChanged = (rowA: SymbolicFraction[], rowB: SymbolicFraction[]) => {
         if (rowA.length !== rowB.length) return true;
@@ -846,7 +970,7 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                 <p className="text-secondary mb-4 break-words">No operations were needed. The starting matrix is already in {formName}.</p>
                 {initialMatrix && (
                     <div className="glass-panel p-2 rounded-lg w-full">
-                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} />
+                        <MatrixReveal matrix={initialMatrix} latex={matrixFormatter(initialMatrix)} title="Initial Matrix" />
                     </div>
                 )}
             </div>
@@ -902,7 +1026,7 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
         if (prev !== undefined) setTimelineIndex(prev);
     };
 
-    const shouldVirtualizeSteps = actualSteps.length > 30;
+    const shouldVirtualizeSteps = actualSteps.length > 30 && maxMatrixRows <= LARGE_MATRIX_THRESHOLD && maxMatrixCols <= LARGE_MATRIX_THRESHOLD;
     const stepList = (index: number) => {
         const step = actualSteps[index];
         const lazy = shouldVirtualizeSteps;
@@ -920,7 +1044,19 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                 </div>
                 {step.description && <p className="text-sm text-secondary italic mt-2 text-center break-words">{step.description}</p>}
                 {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(step.operation)}</div>}
-                {step.matrix ? <div className="glass-panel p-2 rounded-2xl w-full"><ScrollableLatex latex={matrixFormatter(step.matrix)} lazy={lazy} rowClassProvider={rowProvider} /></div> : <p className="text-sm text-secondary">(Intermediate matrix hidden for performance)</p>}
+                {step.matrix ? (
+                    <div className="glass-panel p-2 rounded-2xl w-full">
+                        <MatrixReveal
+                            matrix={step.matrix}
+                            latex={matrixFormatter(step.matrix)}
+                            title="Step Matrix"
+                            lazy={lazy}
+                            rowClassProvider={rowProvider}
+                        />
+                    </div>
+                ) : (
+                    <p className="text-sm text-secondary">(Intermediate matrix hidden for performance)</p>
+                )}
                 {step.matrixBefore && (
                     <div className="w-full flex flex-wrap gap-2 items-center">
                         <input
@@ -947,8 +1083,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
                     <div className="w-full">
                         {step.matrixBefore && (
-                            <ScrollableLatex
+                            <MatrixReveal
+                                matrix={step.matrixBefore}
                                 latex={matrixFormatter(step.matrixBefore)}
+                                title="Matrix Before"
                                 rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
                                 lazy={lazy}
                             />
@@ -957,8 +1095,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                     <div className="hidden md:block text-primary"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
                     <div className="w-full">
                         {step.matrix && (
-                            <ScrollableLatex
+                            <MatrixReveal
+                                matrix={step.matrix}
                                 latex={matrixFormatter(step.matrix)}
+                                title="Matrix After"
                                 rowClassProvider={(r) => rowHasChanged(step.matrixBefore![r], step.matrix![r]) ? 'bg-cyan-100/50' : ''}
                                 lazy={lazy}
                             />
@@ -968,6 +1108,20 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
             </div>
         );
     };
+
+    if (stepsCollapsed) {
+        return (
+            <div className="flex flex-col items-center space-y-3">
+                <div className="glass-panel rounded-2xl p-4 text-center w-full">
+                    <div className="text-secondary">Steps are hidden to keep large matrices responsive.</div>
+                    <div className="text-xs text-secondary mt-1">{actualSteps.length} steps available.</div>
+                </div>
+                <button onClick={() => setStepsCollapsed(false)} className="px-3 py-2 rounded-lg glass-btn text-sm">
+                    Show Steps
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col items-center space-y-4">
@@ -979,6 +1133,11 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                     <button onClick={() => setViewMode('timeline')} className={`px-2 py-1 rounded-xl transition-colors text-xs glass-tab ${viewMode==='timeline' ? 'tab active' : ''}`}>Timeline</button>
                 </div>
                 <button onClick={() => setHighlightDiff(prev => !prev)} className={`px-2 py-1 rounded-xl text-xs ${highlightDiff ? 'glass-btn-primary' : 'glass-btn'}`}>{highlightDiff ? 'Diff On' : 'Diff Off'}</button>
+                {shouldCollapseSteps && (
+                    <button onClick={() => setStepsCollapsed(true)} className="px-2 py-1 rounded-xl text-xs glass-btn">
+                        Hide Steps
+                    </button>
+                )}
                 {onInfo && (
                     <button
                         type="button"
@@ -997,7 +1156,12 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                         {isFirstStepAPlaceholder ? "Starting with the initial matrix:" : "Starting matrix for this phase:"}
                     </p>
                     <div className="glass-panel p-2 rounded-2xl w-full">
-                        <ScrollableLatex latex={matrixFormatter(initialMatrix)} lazy={shouldVirtualizeSteps} />
+                        <MatrixReveal
+                            matrix={initialMatrix}
+                            latex={matrixFormatter(initialMatrix)}
+                            title="Initial Matrix"
+                            lazy={shouldVirtualizeSteps}
+                        />
                     </div>
                 </>
             )}
@@ -1071,8 +1235,10 @@ const StepsRenderer: React.FC<{steps: RowOperationStep[], formName: string, syst
                             {tutorMode && <div className="text-xs text-secondary glass-panel rounded-md px-3 py-2 text-center">{explainOperation(actualSteps[timelineIndex].operation)}</div>}
                             {actualSteps[timelineIndex].matrix && (
                                 <div className="glass-panel p-2 rounded-2xl w-full">
-                                    <ScrollableLatex
+                                    <MatrixReveal
+                                        matrix={actualSteps[timelineIndex].matrix!}
                                         latex={matrixFormatter(actualSteps[timelineIndex].matrix!)}
+                                        title="Step Matrix"
                                         lazy={shouldVirtualizeSteps}
                                         rowClassProvider={highlightDiff && actualSteps[timelineIndex].matrixBefore ? (r) => rowHasChanged(actualSteps[timelineIndex].matrixBefore![r], actualSteps[timelineIndex].matrix![r]) ? 'bg-amber-100/60' : '' : undefined}
                                     />
@@ -1100,6 +1266,7 @@ const SolutionDisplay: React.FC<{ result: SolutionResult, sectionName: string } 
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
 
             {detailsExist && (
@@ -1143,6 +1310,7 @@ const NullSpaceDisplay: React.FC<{ result: NullSpaceResult, sectionName: string 
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
 
             {detailsExist && (
@@ -1174,7 +1342,7 @@ const AdjointMethodDetails: React.FC<{ result: AdjointMethodResult }> = ({ resul
                     </div>
                     <div>
                         <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2. Find Matrix of Cofactors</h4></div>
-                        <ScrollableLatex latex={`C = ${formatMatrixCached(result.cofactorMatrix)}`} />
+                        <MatrixReveal matrix={result.cofactorMatrix} latex={`C = ${formatMatrixCached(result.cofactorMatrix)}`} title="Cofactor Matrix" />
                         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-left">
                             {result.cofactorSteps.map(step => <div key={step.position} className="p-2 glass-panel rounded"><ScrollableLatex latex={step.calculation} displayMode={true} /></div>)}
                         </div>
@@ -1182,12 +1350,12 @@ const AdjointMethodDetails: React.FC<{ result: AdjointMethodResult }> = ({ resul
                     <div>
                         <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">3. Find Adjoint (Adjugate) Matrix</h4></div>
                         <p className="text-secondary mb-3 break-words">The adjoint is the transpose of the cofactor matrix.</p>
-                        <ScrollableLatex latex={`\\text{adj}(A) = C^T = ${formatMatrixCached(result.adjointMatrix)}`} />
+                        <MatrixReveal matrix={result.adjointMatrix} latex={`\\text{adj}(A) = C^T = ${formatMatrixCached(result.adjointMatrix)}`} title="Adjoint Matrix" />
                     </div>
                     <div>
                         <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">4. Calculate Inverse</h4></div>
                         <p className="text-secondary mb-3 break-words">The inverse is calculated using the formula A⁻¹ = (1/det(A)) * adj(A).</p>
-                        <ScrollableLatex latex={`A^{-1} = \\frac{1}{${formatSymbolicFractionToLatex(result.determinantOfA)}} ${formatMatrixCached(result.adjointMatrix)} = ${formatMatrixCached(result.inverseMatrix)}`} />
+                        <MatrixReveal matrix={result.inverseMatrix} latex={`A^{-1} = \\frac{1}{${formatSymbolicFractionToLatex(result.determinantOfA)}} ${formatMatrixCached(result.adjointMatrix)} = ${formatMatrixCached(result.inverseMatrix)}`} title="Inverse Matrix" />
                     </div>
                 </>
             )}
@@ -1202,7 +1370,7 @@ const VerificationCheck: React.FC<{ titleLatex: string, details: MatrixMultiplic
     return (
         <div>
             <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words"><LatexRenderer latex={titleLatex} /></h4></div>
-            <ScrollableLatex latex={formatMatrixCached(details.product)} />
+            <MatrixReveal matrix={details.product} latex={formatMatrixCached(details.product)} title="Verification Product" />
             <button
                 onClick={() => toggleDetailsVisibility(workingsSectionName)}
                 className="mt-4 flex items-center justify-center bg-indigo-600/80 hover:bg-indigo-700/80 text-white font-bold py-2 px-4 rounded-lg transition-all text-sm"
@@ -1233,7 +1401,11 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
         <div className="space-y-4">
             <p className="text-secondary mb-2 font-semibold break-words">Final Inverse Matrix (A⁻¹):</p>
             <div className="p-4 glass-panel rounded-lg w-full mb-6">
-                {result.inverseMatrix ? <ScrollableLatex latex={props.formatMatrixCached(result.inverseMatrix)} /> : <p>Calculation not performed yet.</p>}
+                {result.inverseMatrix ? (
+                    <MatrixReveal matrix={result.inverseMatrix} latex={props.formatMatrixCached(result.inverseMatrix)} title="Inverse Matrix" />
+                ) : (
+                    <p>Calculation not performed yet.</p>
+                )}
             </div>
 
             <DetailsToggleButton 
@@ -1241,6 +1413,7 @@ const InverseMatrixDisplay: React.FC<{ result: InverseResult } & SharedDisplayPr
                 detailsExist={detailsExist}
                 onCalculate={props.handleRequestAndShowDetails}
                 loadingDetails={props.loadingDetails}
+                onCancel={props.onCancelDetails}
             />
             
             {detailsExist && (
@@ -1309,7 +1482,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                         <div className="flex flex-col gap-2">{[...Array(numRows)].map((_, i) => <input key={i} type="text" value={bVectorInput[i]} onChange={(e) => { const newB = [...bVectorInput]; newB[i] = e.target.value; setBVectorInput(newB); }} className="w-24 glass-input rounded-md px-3 py-1 focus:outline-none" />)}</div>
                     </div>
                     {bVectorError && <p className="text-red-500 mt-2">{bVectorError}</p>}
-                    <DetailsToggleButton sectionName={sectionName} detailsExist={false} onCalculate={() => {}} loadingDetails={props.loadingDetails} onClick={handleCalculateHomogeneous}>Calculate with this 'b'</DetailsToggleButton>
+                    <DetailsToggleButton sectionName={sectionName} detailsExist={false} onCalculate={() => {}} loadingDetails={props.loadingDetails} onCancel={props.onCancelDetails} onClick={handleCalculateHomogeneous}>Calculate with this 'b'</DetailsToggleButton>
                 </div>
             ) : (
                 <DetailsToggleButton 
@@ -1317,6 +1490,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                     detailsExist={detailsExist}
                     onCalculate={props.handleRequestAndShowDetails}
                     loadingDetails={props.loadingDetails}
+                    onCancel={props.onCancelDetails}
                 />
             )}
             
@@ -1332,7 +1506,7 @@ const CramersRuleDisplay: React.FC<{ result: CramersRuleResult | null, systemTyp
                                 <div key={sol.variableName} className="space-y-2 pt-4">
                                     <div className="min-w-0"><h4 className="font-semibold text-lg text-primary mb-2 break-words">2.{i+1}. Solve for <LatexRenderer latex={sol.variableName} displayMode={false} /></h4></div>
                                     <p className="text-secondary break-words">Replace column {i+1} of A with the vector b to form A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
-                                    <ScrollableLatex latex={`A_{${sol.variableName.match(/\d+/)?.[0] || i+1}} = ${props.formatMatrixCached(sol.matrixAi)}`} />
+                                    <MatrixReveal matrix={sol.matrixAi} latex={`A_{${sol.variableName.match(/\d+/)?.[0] || i+1}} = ${props.formatMatrixCached(sol.matrixAi)}`} title={`Matrix A_${sol.variableName.match(/\\d+/)?.[0] || i + 1}`} />
                                     <p className="text-secondary break-words">Calculate the determinant of A_{'{'}{sol.variableName.match(/\d+/)?.[0] || i+1}{'}'}.</p>
                                     <ScrollableLatex latex={`\\det(A_{${sol.variableName.match(/\d+/)?.[0] || i+1}}) = ${formatSymbolicFractionToLatex(sol.determinantOfAi)}`} />
                                     <ScrollableLatex latex={sol.finalCalculation} />
@@ -1356,9 +1530,13 @@ const DeterminantRowOpsRenderer: React.FC<{ steps: DeterminantRowOpStep[] }> = (
                 <div className="px-3 py-1 glass-panel rounded-md shadow-inner text-center mb-2 w-full"><ScrollableLatex latex={step.operation} displayMode={false} /></div>
                 <p className="text-sm text-secondary italic mb-3 break-words">{step.description}</p>
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixCached(step.matrixBefore)}`} lazy={shouldVirtualize} /></div>
+                    <div className="w-full">
+                        <MatrixReveal matrix={step.matrixBefore} latex={`\\det${formatMatrixCached(step.matrixBefore)}`} title="Determinant (Before)" lazy={shouldVirtualize} />
+                    </div>
                     <div className="hidden md:block text-primary"><LatexRenderer latex={`\\Rightarrow`} displayMode={true} /></div>
-                    <div className="w-full"><ScrollableLatex latex={`\\det${formatMatrixCached(step.matrixAfter)}`} lazy={shouldVirtualize} /></div>
+                    <div className="w-full">
+                        <MatrixReveal matrix={step.matrixAfter} latex={`\\det${formatMatrixCached(step.matrixAfter)}`} title="Determinant (After)" lazy={shouldVirtualize} />
+                    </div>
                 </div>
             </div>
         );
