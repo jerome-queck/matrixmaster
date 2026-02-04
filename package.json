@@ -14,7 +14,7 @@
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on tcp:3000 && ELECTRON_DEV=1 electron -r ts-node/register/transpile-only electron/main.ts\"",
     "electron:build": "npm run build && tsc -p electron/tsconfig.json",
     "electron:dist": "npm run electron:build && electron-builder",
-    "release:check": "node -e \"const p=require('./package.json'); if(!p.version||p.version==='0.0.0'){console.error('Set package.json version before release.'); process.exit(1)}\" && npm run build && npm run test && npm run electron:dist",
+    "release:check": "node -e \"const p=require('./package.json'); if(!p.version||p.version==='0.0.0'){console.error('Set package.json version before release.'); process.exit(1)}\" && npm run build && npm run test && npm run electron:dist && node scripts/check-release-artifacts.js",
     "test:calc": "node -r ts-node/register tests/calculation.test.ts",
     "test:ui": "vitest run"
   },
