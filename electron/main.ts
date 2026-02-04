@@ -151,6 +151,9 @@ const sanitizeUpdateError = (error: unknown) => {
 const configureAutoUpdates = () => {
   if (isDev) return;
 
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
   autoUpdater.on('checking-for-update', () => {
     lastCheckedAt = new Date().toISOString();
     sendUpdateStatus({ state: 'checking', lastCheckedAt });
@@ -195,14 +198,56 @@ const configureAutoUpdates = () => {
     sendUpdateStatus({ state: 'error', message: sanitizeUpdateError(error) });
   });
 
-  autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
+  autoUpdater.checkForUpdates().catch((error) => {
+    sendUpdateStatus({ state: 'error', message: sanitizeUpdateError(error) });
+  });
 };
 
 const registerIpc = () => {
   ipcMain.handle('app-version', () => app.getVersion());
-  ipcMain.handle('update-check', () => autoUpdater.checkForUpdates());
-  ipcMain.handle('update-download', () => autoUpdater.downloadUpdate());
-  ipcMain.handle('update-install', () => autoUpdater.quitAndInstall());
+  const handleUnsupportedUpdate = () => {
+    const message = 'Updates are only available in packaged builds.';
+    sendUpdateStatus({ state: 'unsupported', message });
+    return { state: 'unsupported', message };
+  };
+  const handleUpdateError = (error: unknown) => {
+    const message = sanitizeUpdateError(error);
+    sendUpdateStatus({ state: 'error', message });
+    return { state: 'error', message };
+  };
+  const ensureUpdateSupported = () => {
+    if (!app.isPackaged || isDev) {
+      return handleUnsupportedUpdate();
+    }
+    return null;
+  };
+  ipcMain.handle('update-check', async () => {
+    const unsupported = ensureUpdateSupported();
+    if (unsupported) return unsupported;
+    try {
+      return await autoUpdater.checkForUpdates();
+    } catch (error) {
+      return handleUpdateError(error);
+    }
+  });
+  ipcMain.handle('update-download', async () => {
+    const unsupported = ensureUpdateSupported();
+    if (unsupported) return unsupported;
+    try {
+      return await autoUpdater.downloadUpdate();
+    } catch (error) {
+      return handleUpdateError(error);
+    }
+  });
+  ipcMain.handle('update-install', async () => {
+    const unsupported = ensureUpdateSupported();
+    if (unsupported) return unsupported;
+    try {
+      return await autoUpdater.quitAndInstall();
+    } catch (error) {
+      return handleUpdateError(error);
+    }
+  });
   ipcMain.handle('health-check', () => {
     const appRoot = app.getAppPath();
     const indexPath = path.join(appRoot, 'dist', 'index.html');
