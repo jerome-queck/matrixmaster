@@ -50,6 +50,7 @@ Guidance:
 - Small changes: `npm run test`.
 - Larger behavior changes: `npm run verify`.
 - Release candidates: `npm run release:check`.
+- When rebuilding `dist/` for release, ensure the build artifacts are complete and the release checks pass before proceeding.
 
 ## PR Policy (Release-Driven)
 Every meaningful change gets its own PR. This includes features, fixes,
