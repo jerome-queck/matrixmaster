@@ -694,11 +694,14 @@ const App: React.FC = () => {
             if (payload?.version) setLatestVersion(payload.version);
             if (payload?.lastCheckedAt) setLastUpdateCheck(payload.lastCheckedAt);
             if (payload?.state) logDiagnostic('update-status', payload);
+            if (payload?.state === 'unsupported') {
+                pushToast(payload?.message || 'Updates are only available in packaged builds.', 'info');
+            }
         });
         return () => {
             if (unsubscribe) unsubscribe();
         };
-    }, []);
+    }, [logDiagnostic, pushToast]);
 
     useEffect(() => {
         if (updateStatus.state === 'available' || updateStatus.state === 'ready') {
@@ -712,6 +715,10 @@ const App: React.FC = () => {
     const updateCooldownRef = useRef<number>(0);
     const UPDATE_COOLDOWN_MS = 30_000;
     const handleCheckForUpdates = () => {
+        if (updateStatus.state === 'unsupported') {
+            pushToast('Updates are only available in packaged builds.', 'info');
+            return;
+        }
         const now = Date.now();
         if (now - updateCooldownRef.current < UPDATE_COOLDOWN_MS) {
             pushToast('Please wait a moment before checking again.', 'info');
@@ -722,12 +729,24 @@ const App: React.FC = () => {
     };
 
     const handleDownloadUpdate = () => {
+        if (updateStatus.state === 'unsupported') {
+            pushToast('Updates are only available in packaged builds.', 'info');
+            return;
+        }
         window.electronAPI?.downloadUpdate?.().catch((err: any) => reportError('Update download failed.', err));
     };
 
     const handleInstallUpdate = () => {
+        if (updateStatus.state === 'unsupported') {
+            pushToast('Updates are only available in packaged builds.', 'info');
+            return;
+        }
         window.electronAPI?.installUpdate?.().catch((err: any) => reportError('Update install failed.', err));
     };
+
+    const updateActionsDisabled = updateStatus.state === 'unsupported'
+        || updateStatus.state === 'checking'
+        || updateStatus.state === 'downloading';
 
     useEffect(() => {
         const handleAfterPrint = () => setPrintMode('none');
@@ -1280,6 +1299,8 @@ const App: React.FC = () => {
                 return 'Update ready — restart to apply';
             case 'up-to-date':
                 return 'Up to date';
+            case 'unsupported':
+                return status.message || 'Updates are only available in packaged builds.';
             case 'error':
                 return status.message || 'Update error';
             default:
@@ -3979,12 +4000,30 @@ const App: React.FC = () => {
                             </div>
                         )}
                         <div className="flex flex-wrap gap-2">
-                            <button onClick={handleCheckForUpdates} className="px-3 py-2 rounded-lg glass-btn text-sm">Check for Updates</button>
+                            <button
+                                onClick={handleCheckForUpdates}
+                                disabled={updateActionsDisabled}
+                                className="px-3 py-2 rounded-lg glass-btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Check for Updates
+                            </button>
                             {updateStatus.state === 'available' && (
-                                <button onClick={handleDownloadUpdate} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Download Update</button>
+                                <button
+                                    onClick={handleDownloadUpdate}
+                                    disabled={updateActionsDisabled}
+                                    className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Download Update
+                                </button>
                             )}
                             {updateStatus.state === 'ready' && (
-                                <button onClick={handleInstallUpdate} className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm">Restart to Update</button>
+                                <button
+                                    onClick={handleInstallUpdate}
+                                    disabled={updateActionsDisabled}
+                                    className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Restart to Update
+                                </button>
                             )}
                         </div>
                     </div>
