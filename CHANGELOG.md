@@ -27,6 +27,23 @@ Source of truth:
 
 ### Security
 
+## 1.0.6 - 2026-02-04
+### Added
+
+### Changed
+- Added package metadata fields to improve desktop packaging diagnostics.
+
+### Fixed
+- Ensured desktop update actions report unsupported states instead of failing silently in dev builds.
+- Made desktop updates manual to align with the UI-driven flow.
+- Prevented Windows installs from failing on macOS-only `dmg-license`.
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.0.5 - 2026-02-04
 ### Added
 

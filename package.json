@@ -1,7 +1,9 @@
 {
   "name": "matrix-master",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
+  "description": "Offline-first linear algebra workspace for numeric and symbolic computation.",
+  "author": "Matrix Master",
   "type": "commonjs",
   "scripts": {
     "dev": "vite",
@@ -32,7 +34,6 @@
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.21",
     "concurrently": "^8.2.2",
-    "dmg-license": "^1.0.11",
     "electron": "^40.1.0",
     "electron-builder": "^26.7.0",
     "postcss": "^8.5.3",
@@ -46,6 +47,9 @@
     "@testing-library/user-event": "^14.6.1",
     "jsdom": "^26.1.0",
     "vitest": "^3.2.3"
+  },
+  "optionalDependencies": {
+    "dmg-license": "^1.0.11"
   },
   "main": "electron-dist/main.js",
   "build": {
