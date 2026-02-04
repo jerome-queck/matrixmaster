@@ -137,6 +137,7 @@ Release checklist:
 - Run `npm run release:check`.
 - Clean workspace artifacts (revert `node_modules/` and `package-lock.json`, remove `.cache/`) before finalizing.
 - Run CI debug pass before finalizing release: wait for PR checks to finish, recheck status, and investigate any failures.
+- Produce both macOS and Windows artifacts before the final PR commit (`npm run electron:dist` and `npx electron-builder --win --x64 --publish=never`).
 - Tag and publish via GitHub (if that is current process).
 - Confirm `CHANGELOG.md` `Unreleased` is empty post-release.
 - Ensure a new version section exists with the release date.
