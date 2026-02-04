@@ -5,8 +5,11 @@ import { LatexRenderer } from './LatexRenderer';
 import { formatMatrixToLatex, formatSymbolicFractionToLatex, formatVectorsToLatex, formatAugmentedMatrixToLatex, generateAssumptionSteps, parseInput, areSFEqual, formatNumericMatrixToLatex, formatNumberToLatex, symbolicFractionToNumber, toNumericMatrix, numericConditionNumber, numericTrace, addSF, multiplySF } from '../services/matrixService';
 import { hashMatrix, hashNumericMatrix } from '../services/hash';
 import { createLruCache } from '../services/lru';
+import { copyToClipboard } from '../services/clipboardService';
 
 type AllResultTypes = CalculationResult | MatrixOperationsResult | DeterminantOfOperationResult | MatrixAnalysisResult;
+type ClipboardErrorHandler = (message: string, data?: unknown) => void;
+const ClipboardErrorContext = React.createContext<ClipboardErrorHandler | undefined>(undefined);
 
 interface ResultsDisplayProps {
     results: AllResultTypes;
@@ -24,6 +27,7 @@ interface ResultsDisplayProps {
     loadingDetails: string | null;
     onExplain: (topic: string) => void;
     onInfo?: (key: string) => void;
+    onClipboardError?: (message: string, data?: unknown) => void;
 }
 
 // Props that are passed down through the component tree
@@ -266,24 +270,31 @@ const isLargeMatrix = (matrix?: MatrixLike | null) => {
 };
 
 // A robust wrapper for making LaTeX content scrollable
-const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean, allowYScroll?: boolean, maxHeight?: string}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true, allowYScroll = false, maxHeight }) => (
-    <div className={`overflow-x-auto w-full p-2 flex justify-center relative ${allowYScroll ? 'overflow-y-auto' : ''}`} style={allowYScroll && maxHeight ? { maxHeight } : undefined}>
-      {showCopy && (
-        <button
-          className="absolute right-2 top-2 px-2 py-1 rounded-md text-xs glass-btn"
-          onClick={() => navigator.clipboard.writeText(latex)}
-          aria-label="Copy LaTeX"
-        >
-          Copy LaTeX
-        </button>
-      )}
-      <div className="min-w-max">
-        <LatexRenderer latex={latex} displayMode={displayMode} rowClassProvider={rowClassProvider} lazy={lazy} />
-      </div>
-    </div>
-);
+const ScrollableLatex: React.FC<{latex: string, displayMode?: boolean, rowClassProvider?: (r: number) => string, lazy?: boolean, showCopy?: boolean, allowYScroll?: boolean, maxHeight?: string, onClipboardError?: ClipboardErrorHandler}> = ({ latex, displayMode = true, rowClassProvider, lazy, showCopy = true, allowYScroll = false, maxHeight, onClipboardError }) => {
+    const contextError = React.useContext(ClipboardErrorContext);
+    const errorHandler = onClipboardError ?? contextError;
+    return (
+        <div className={`overflow-x-auto w-full p-2 flex justify-center relative ${allowYScroll ? 'overflow-y-auto' : ''}`} style={allowYScroll && maxHeight ? { maxHeight } : undefined}>
+          {showCopy && (
+            <button
+              className="absolute right-2 top-2 px-2 py-1 rounded-md text-xs glass-btn"
+              onClick={async () => {
+                  const ok = await copyToClipboard(latex);
+                  if (!ok) errorHandler?.('Clipboard unavailable. Unable to copy LaTeX.');
+              }}
+              aria-label="Copy LaTeX"
+            >
+              Copy LaTeX
+            </button>
+          )}
+          <div className="min-w-max">
+            <LatexRenderer latex={latex} displayMode={displayMode} rowClassProvider={rowClassProvider} lazy={lazy} />
+          </div>
+        </div>
+    );
+};
 
-const MatrixModal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; latex: string; }> = ({ isOpen, onClose, title, latex }) => {
+const MatrixModal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; latex: string; onClipboardError?: (message: string, data?: unknown) => void }> = ({ isOpen, onClose, title, latex, onClipboardError }) => {
     if (!isOpen) return null;
     return (
         <div
@@ -309,7 +320,7 @@ const MatrixModal: React.FC<{ isOpen: boolean; onClose: () => void; title: strin
                         </svg>
                     </button>
                 </div>
-                <ScrollableLatex latex={latex} allowYScroll={true} maxHeight="75vh" />
+                <ScrollableLatex latex={latex} allowYScroll={true} maxHeight="75vh" onClipboardError={onClipboardError} />
             </div>
         </div>
     );
@@ -806,20 +817,22 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = (props) => {
     };
 
     return (
-        <div className="space-y-4">
-            <SummaryBar results={results} numberFormat={props.numberFormat} />
-            {assumptions.length > 0 && <UserAssumptionsDisplay assumptions={assumptions} />}
-            {constraintWarnings.length > 0 && (
-                <div className="p-3 bg-red-400/20 border border-red-500/30 rounded-lg text-sm space-y-1">
-                    <div className="font-semibold text-red-700 ">Constraint Violations</div>
-                    {constraintWarnings.map((w, i) => <div key={i} className="text-red-700 ">{w}</div>)}
-                </div>
-            )}
-            {isSystemSolverResult(results) && <SystemSolverResultDisplay {...sharedProps} />}
-            {isMatrixOpsResult(results) && <MatrixOperationsResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
-            {isDeterminantOfOpsResult(results) && <DeterminantOfOperationResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
-            {isAnalysisResult(results) && <AnalysisResultDisplay result={results} analysisMatrix={props.analysisMatrix || null} numberFormat={props.numberFormat} />}
-        </div>
+        <ClipboardErrorContext.Provider value={props.onClipboardError}>
+            <div className="space-y-4">
+                <SummaryBar results={results} numberFormat={props.numberFormat} />
+                {assumptions.length > 0 && <UserAssumptionsDisplay assumptions={assumptions} />}
+                {constraintWarnings.length > 0 && (
+                    <div className="p-3 bg-red-400/20 border border-red-500/30 rounded-lg text-sm space-y-1">
+                        <div className="font-semibold text-red-700 ">Constraint Violations</div>
+                        {constraintWarnings.map((w, i) => <div key={i} className="text-red-700 ">{w}</div>)}
+                    </div>
+                )}
+                {isSystemSolverResult(results) && <SystemSolverResultDisplay {...sharedProps} />}
+                {isMatrixOpsResult(results) && <MatrixOperationsResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
+                {isDeterminantOfOpsResult(results) && <DeterminantOfOperationResultDisplay result={results} onUseResult={onUseResult} {...sharedProps} />}
+                {isAnalysisResult(results) && <AnalysisResultDisplay result={results} analysisMatrix={props.analysisMatrix || null} numberFormat={props.numberFormat} />}
+            </div>
+        </ClipboardErrorContext.Provider>
     );
 };
 

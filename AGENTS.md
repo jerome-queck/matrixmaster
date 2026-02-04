@@ -127,6 +127,7 @@ Versioning:
 - `package.json` version must be updated before release.
 - Each PR must update `CHANGELOG.md` under `Unreleased`.
 - Each release compiles `Unreleased` into a new versioned entry.
+ - When a new version is released, merge the PR as part of the release flow.
 
 Release checklist:
 - Bump `package.json` version.
@@ -186,3 +187,4 @@ Required agent behavior:
 - Commit after each feature slice with detailed commit messages.
 - Suggest merge + release after sufficient tests pass.
 - Each new PR must target a new version release.
+- After merging a PR, delete the remote branch.

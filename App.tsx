@@ -9,6 +9,8 @@ import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
 import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, numericConditionNumber, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
+import { copyToClipboard } from './services/clipboardService';
+import { createSafeStorage, safeJsonParse } from './services/storageService';
 import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, DeterminantOfOperationResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
@@ -406,7 +408,7 @@ const App: React.FC = () => {
     const [isStepCompareOpen, setStepCompareOpen] = useState(false);
     const [stepCompareResult, setStepCompareResult] = useState<string | null>(null);
 
-    const logDiagnostic = (message: string, data?: unknown) => {
+    const logDiagnostic = useCallback((message: string, data?: unknown) => {
         if (!isDesktop) return;
         const timestamp = new Date().toISOString();
         let serialized = '';
@@ -419,25 +421,37 @@ const App: React.FC = () => {
         }
         const entry = data !== undefined ? `${timestamp} ${message} | ${serialized}` : `${timestamp} ${message}`;
         setDiagnostics(prev => [entry, ...prev].slice(0, 200));
-    };
+    }, [isDesktop]);
 
-    const pushToast = (message: string, type: 'info' | 'error' = 'info') => {
+    const pushToast = useCallback((message: string, type: 'info' | 'error' = 'info') => {
         const id = `toast_${Date.now()}_${Math.random().toString(16).slice(2)}`;
         setToasts(prev => [...prev, { id, message, type }]);
         setTimeout(() => {
             setToasts(prev => prev.filter(t => t.id !== id));
         }, 5000);
-    };
+    }, []);
 
-    const reportError = (message: string, data?: unknown) => {
+    const reportError = useCallback((message: string, data?: unknown) => {
         setError(message);
         pushToast(message, 'error');
         logDiagnostic(message, data);
-    };
+    }, [logDiagnostic, pushToast]);
+
+    const storage = useMemo(() => createSafeStorage(
+        typeof window !== 'undefined' ? window.localStorage : undefined,
+        (error) => {
+            logDiagnostic('storage-error', error);
+            pushToast('Local storage unavailable. Changes won’t persist.', 'error');
+        }
+    ), [logDiagnostic, pushToast]);
 
     const copyDiagnostics = async () => {
         const payload = diagnostics.join('\n');
-        await navigator.clipboard.writeText(payload);
+        const ok = await copyToClipboard(payload);
+        if (!ok) {
+            reportError('Clipboard unavailable. Unable to copy diagnostics.');
+            return;
+        }
         pushToast('Diagnostics copied.', 'info');
     };
 
@@ -488,17 +502,17 @@ const App: React.FC = () => {
         };
 
         Object.entries(legacyMap).forEach(([legacyKey, newKey]) => {
-            const legacyValue = localStorage.getItem(legacyKey);
+            const legacyValue = storage.getItem(legacyKey);
             const targetKey = profileStorageKey(profileId, newKey);
-            if (legacyValue && !localStorage.getItem(targetKey)) {
-                localStorage.setItem(targetKey, legacyValue);
+            if (legacyValue && !storage.getItem(targetKey)) {
+                storage.setItem(targetKey, legacyValue);
             }
         });
     };
 
     const loadProfile = (profileId: string) => {
         setProfileLoaded(false);
-        const getItem = (key: string) => localStorage.getItem(profileStorageKey(profileId, key));
+        const getItem = (key: string) => storage.getItem(profileStorageKey(profileId, key));
 
         setTheme(getItem('theme') || 'dark');
         setDensity(getItem('density') || 'comfortable');
@@ -508,99 +522,65 @@ const App: React.FC = () => {
         const savedAutoSnapshot = getItem('autoSnapshot');
         if (savedAutoSnapshot !== null) setAutoSnapshotOnCalculate(savedAutoSnapshot === 'true');
 
-        try {
-            const savedCustomColors = getItem('customTheme');
-            if (savedCustomColors) setCustomThemeColors(JSON.parse(savedCustomColors));
-        } catch (e) { console.error("Failed to load custom theme colors", e); }
+        const savedCustomColors = getItem('customTheme');
+        setCustomThemeColors(savedCustomColors ? safeJsonParse(savedCustomColors, defaultCustomColors) : defaultCustomColors);
 
-        try {
-            const savedLibrary = getItem('library');
-            if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
-            else setLibrary([]);
-        } catch (e) { console.error("Failed to load matrix library", e); setLibrary([]); }
+        const savedLibrary = getItem('library');
+        setLibrary(savedLibrary ? safeJsonParse(savedLibrary, [], Array.isArray) : []);
 
-        try {
-            const savedHistory = getItem('history');
-            const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
-            const trimmedHistory = Array.isArray(parsedHistory) ? parsedHistory.slice(-HISTORY_LIMIT) : [];
-            setHistory(trimmedHistory);
-            const savedIndex = getItem('historyIndex');
-            if (savedIndex !== null) {
-                const idx = parseInt(savedIndex, 10);
-                setHistoryIndex(Number.isFinite(idx) ? Math.min(idx, trimmedHistory.length - 1) : (trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1));
-            } else {
-                setHistoryIndex(trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1);
-            }
-        } catch (e) { console.error("Failed to load history", e); setHistory([]); setHistoryIndex(-1); }
+        const savedHistory = getItem('history');
+        const parsedHistory = savedHistory ? safeJsonParse(savedHistory, [], Array.isArray) : [];
+        const trimmedHistory = parsedHistory.slice(-HISTORY_LIMIT);
+        setHistory(trimmedHistory);
+        const savedIndex = getItem('historyIndex');
+        if (savedIndex !== null) {
+            const idx = parseInt(savedIndex, 10);
+            setHistoryIndex(Number.isFinite(idx) ? Math.min(idx, trimmedHistory.length - 1) : (trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1));
+        } else {
+            setHistoryIndex(trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1);
+        }
 
-        try {
-            const savedRecipes = getItem('recipes');
-            if (savedRecipes) setRecipes(JSON.parse(savedRecipes));
-            else setRecipes([]);
-        } catch (e) { console.error("Failed to load recipes", e); setRecipes([]); }
+        const savedRecipes = getItem('recipes');
+        setRecipes(savedRecipes ? safeJsonParse(savedRecipes, [], Array.isArray) : []);
 
-        try {
-            const savedAssumptions = getItem('assumptions');
-            if (savedAssumptions) setVariableAssumptions(JSON.parse(savedAssumptions));
-            else setVariableAssumptions([]);
-        } catch (e) { console.error("Failed to load assumptions", e); setVariableAssumptions([]); }
+        const savedAssumptions = getItem('assumptions');
+        setVariableAssumptions(savedAssumptions ? safeJsonParse(savedAssumptions, [], Array.isArray) : []);
 
-        try {
-            const savedFormat = getItem('numberFormat');
-            if (savedFormat) setNumberFormat({ ...defaultNumberFormat, ...JSON.parse(savedFormat) });
-            else setNumberFormat(defaultNumberFormat);
-        } catch (e) { console.error("Failed to load number format", e); setNumberFormat(defaultNumberFormat); }
+        const savedFormat = getItem('numberFormat');
+        setNumberFormat(savedFormat ? { ...defaultNumberFormat, ...safeJsonParse(savedFormat, {}) } : defaultNumberFormat);
 
-        try {
-            const savedReport = getItem('reportOptions');
-            if (savedReport) setReportOptions({ ...defaultReportOptions, ...JSON.parse(savedReport) });
-            else setReportOptions(defaultReportOptions);
-        } catch (e) { console.error("Failed to load report options", e); setReportOptions(defaultReportOptions); }
+        const savedReport = getItem('reportOptions');
+        setReportOptions(savedReport ? { ...defaultReportOptions, ...safeJsonParse(savedReport, {}) } : defaultReportOptions);
 
-        try {
-            const savedPlugins = getItem('plugins');
-            if (savedPlugins) setPlugins(JSON.parse(savedPlugins));
-            else setPlugins([]);
-        } catch (e) { console.error("Failed to load plugins", e); setPlugins([]); }
+        const savedPlugins = getItem('plugins');
+        setPlugins(savedPlugins ? safeJsonParse(savedPlugins, [], Array.isArray) : []);
 
-        try {
-            const savedVersions = getItem('projectVersions');
-            if (savedVersions) setProjectVersions(JSON.parse(savedVersions));
-            else setProjectVersions([]);
-        } catch (e) { console.error("Failed to load project versions", e); setProjectVersions([]); }
+        const savedVersions = getItem('projectVersions');
+        setProjectVersions(savedVersions ? safeJsonParse(savedVersions, [], Array.isArray) : []);
 
-        try {
-            const savedExercises = getItem('exercisePacks');
-            if (savedExercises) setExercisePacks(JSON.parse(savedExercises));
-            else setExercisePacks([]);
-        } catch (e) { console.error("Failed to load exercise packs", e); setExercisePacks([]); }
+        const savedExercises = getItem('exercisePacks');
+        setExercisePacks(savedExercises ? safeJsonParse(savedExercises, [], Array.isArray) : []);
 
-        try {
-            const savedSplit = getItem('layoutSplit');
-            if (savedSplit) {
-                const parsed = parseFloat(savedSplit);
-                if (Number.isFinite(parsed)) setSplitRatio(Math.min(0.75, Math.max(0.25, parsed)));
-            }
-        } catch (e) { console.error("Failed to load layout split", e); }
+        const savedSplit = getItem('layoutSplit');
+        if (savedSplit) {
+            const parsed = parseFloat(savedSplit);
+            if (Number.isFinite(parsed)) setSplitRatio(Math.min(0.75, Math.max(0.25, parsed)));
+        }
 
         setProfileLoaded(true);
     };
 
     useEffect(() => {
-        const storedProfiles = localStorage.getItem(PROFILE_LIST_KEY);
-        let parsedProfiles: WorkspaceProfile[] = [];
-        if (storedProfiles) {
-            try {
-                parsedProfiles = JSON.parse(storedProfiles);
-            } catch (e) { console.error("Failed to parse profiles", e); }
-        }
+        const storedProfiles = storage.getItem(PROFILE_LIST_KEY);
+        const parsedProfiles = storedProfiles ? safeJsonParse(storedProfiles, [], Array.isArray) : [];
         if (parsedProfiles.length === 0) {
-            parsedProfiles = [{ id: 'default', name: 'Default' }];
-            localStorage.setItem(PROFILE_LIST_KEY, JSON.stringify(parsedProfiles));
+            const seedProfiles = [{ id: 'default', name: 'Default' }];
+            storage.setItem(PROFILE_LIST_KEY, JSON.stringify(seedProfiles));
+            parsedProfiles.push(...seedProfiles);
         }
         setProfiles(parsedProfiles);
 
-        const storedActive = localStorage.getItem(ACTIVE_PROFILE_KEY) || parsedProfiles[0].id;
+        const storedActive = storage.getItem(ACTIVE_PROFILE_KEY) || parsedProfiles[0].id;
         setActiveProfile(storedActive);
         migrateLegacyStorage(storedActive);
         loadProfile(storedActive);
@@ -646,10 +626,10 @@ const App: React.FC = () => {
         }
 
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'density'), density);
-        localStorage.setItem(profileStorageKey(activeProfile, 'theme'), theme);
+        storage.setItem(profileStorageKey(activeProfile, 'density'), density);
+        storage.setItem(profileStorageKey(activeProfile, 'theme'), theme);
         if (theme === 'custom') {
-            localStorage.setItem(profileStorageKey(activeProfile, 'customTheme'), JSON.stringify(customThemeColors));
+            storage.setItem(profileStorageKey(activeProfile, 'customTheme'), JSON.stringify(customThemeColors));
         }
     }, [theme, density, customThemeColors, activeProfile, profileLoaded]);
 
@@ -760,78 +740,78 @@ const App: React.FC = () => {
         const sizeMap: Record<FontSize, string> = { small: '90%', medium: '100%', large: '110%' };
         document.documentElement.style.fontSize = sizeMap[fontSize] || '100%';
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'fontSize'), fontSize);
+        storage.setItem(profileStorageKey(activeProfile, 'fontSize'), fontSize);
     }, [fontSize, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'builderMode'), builderMode);
+        storage.setItem(profileStorageKey(activeProfile, 'builderMode'), builderMode);
     }, [builderMode, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'tutorMode'), String(tutorMode));
+        storage.setItem(profileStorageKey(activeProfile, 'tutorMode'), String(tutorMode));
     }, [tutorMode, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'autoSnapshot'), String(autoSnapshotOnCalculate));
+        storage.setItem(profileStorageKey(activeProfile, 'autoSnapshot'), String(autoSnapshotOnCalculate));
     }, [autoSnapshotOnCalculate, activeProfile, profileLoaded]);
 
     useEffect(() => {
         // Save library to local storage on change
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'library'), JSON.stringify(library));
+        storage.setItem(profileStorageKey(activeProfile, 'library'), JSON.stringify(library));
     }, [library, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'history'), JSON.stringify(history));
+        storage.setItem(profileStorageKey(activeProfile, 'history'), JSON.stringify(history));
     }, [history, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'historyIndex'), String(historyIndex));
+        storage.setItem(profileStorageKey(activeProfile, 'historyIndex'), String(historyIndex));
     }, [historyIndex, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'recipes'), JSON.stringify(recipes));
+        storage.setItem(profileStorageKey(activeProfile, 'recipes'), JSON.stringify(recipes));
     }, [recipes, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'assumptions'), JSON.stringify(variableAssumptions));
+        storage.setItem(profileStorageKey(activeProfile, 'assumptions'), JSON.stringify(variableAssumptions));
     }, [variableAssumptions, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'numberFormat'), JSON.stringify(numberFormat));
+        storage.setItem(profileStorageKey(activeProfile, 'numberFormat'), JSON.stringify(numberFormat));
     }, [numberFormat, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'reportOptions'), JSON.stringify(reportOptions));
+        storage.setItem(profileStorageKey(activeProfile, 'reportOptions'), JSON.stringify(reportOptions));
     }, [reportOptions, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'plugins'), JSON.stringify(plugins));
+        storage.setItem(profileStorageKey(activeProfile, 'plugins'), JSON.stringify(plugins));
     }, [plugins, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'projectVersions'), JSON.stringify(projectVersions));
+        storage.setItem(profileStorageKey(activeProfile, 'projectVersions'), JSON.stringify(projectVersions));
     }, [projectVersions, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'exercisePacks'), JSON.stringify(exercisePacks));
+        storage.setItem(profileStorageKey(activeProfile, 'exercisePacks'), JSON.stringify(exercisePacks));
     }, [exercisePacks, activeProfile, profileLoaded]);
 
     useEffect(() => {
         if (!profileLoaded) return;
-        localStorage.setItem(profileStorageKey(activeProfile, 'layoutSplit'), String(splitRatio));
+        storage.setItem(profileStorageKey(activeProfile, 'layoutSplit'), String(splitRatio));
     }, [splitRatio, activeProfile, profileLoaded]);
 
     useEffect(() => {
@@ -1472,12 +1452,12 @@ const App: React.FC = () => {
 
     const persistProfiles = (nextProfiles: WorkspaceProfile[]) => {
         setProfiles(nextProfiles);
-        localStorage.setItem(PROFILE_LIST_KEY, JSON.stringify(nextProfiles));
+        storage.setItem(PROFILE_LIST_KEY, JSON.stringify(nextProfiles));
     };
 
     const handleSwitchProfile = (profileId: string) => {
         setActiveProfile(profileId);
-        localStorage.setItem(ACTIVE_PROFILE_KEY, profileId);
+        storage.setItem(ACTIVE_PROFILE_KEY, profileId);
         loadProfile(profileId);
     };
 
@@ -1818,7 +1798,10 @@ const App: React.FC = () => {
 
     const copyMatrixLatex = async (key: string) => {
         const latex = buildMatrixLatex(key);
-        await navigator.clipboard.writeText(latex);
+        const ok = await copyToClipboard(latex);
+        if (!ok) {
+            reportError('Clipboard unavailable. Unable to copy LaTeX.');
+        }
     };
 
     const copyMatrixToClipboard = async () => {
@@ -1840,7 +1823,10 @@ const App: React.FC = () => {
             payload = JSON.stringify(matrix.map(row => row.map(cell => stringifySymbolicFraction(cell))));
         }
 
-        await navigator.clipboard.writeText(payload);
+        const ok = await copyToClipboard(payload);
+        if (!ok) {
+            throw new Error('Clipboard unavailable. Unable to copy.');
+        }
     };
 
     const exportStateAsJson = (asShareFile: boolean) => {
@@ -2169,7 +2155,10 @@ const App: React.FC = () => {
             reportError('No results to export.');
             return;
         }
-        await navigator.clipboard.writeText(bundle.latexBlock);
+        const ok = await copyToClipboard(bundle.latexBlock);
+        if (!ok) {
+            reportError('Clipboard unavailable. Unable to copy steps.');
+        }
     };
 
     // --- Universal Handlers ---
@@ -2582,7 +2571,7 @@ const App: React.FC = () => {
                         <InfoButton infoKey="matrixInput" />
                     </div>
                     <p className="text-sm text-secondary mb-4 max-w-lg mx-auto">You can use integers (5), fractions (2/3), and symbolic constants (a, k, 5b-3).</p>
-                    <MatrixInput key={solverMatrixKey} rows={numRows} cols={totalCols} matrix={solverMatrix} systemType={systemType} onMatrixChange={handleRawMatrixChange} onSave={() => handleOpenSaveModal(solverMatrix, numRows, totalCols)} onLoad={() => { setLoadTarget('solver'); setLoadModalOpen(true); }} />
+                    <MatrixInput key={solverMatrixKey} rows={numRows} cols={totalCols} matrix={solverMatrix} systemType={systemType} onMatrixChange={handleRawMatrixChange} onSave={() => handleOpenSaveModal(solverMatrix, numRows, totalCols)} onLoad={() => { setLoadTarget('solver'); setLoadModalOpen(true); }} onClipboardError={reportError} />
                 </div>
             )}
         </>
@@ -2650,7 +2639,7 @@ const App: React.FC = () => {
                                 </div>
                                 <button onClick={() => handleRandomizeOpsMatrix(name)} className="glass-btn font-bold py-2 px-4 rounded-lg">Randomize</button>
                             </div>
-                            <MatrixInput key={def.key} rows={numDefRows} cols={numDefCols} matrix={def.matrix} systemType="homogeneous" onMatrixChange={(m) => handleOpsMatrixChange(name, m)} onSave={() => handleOpenSaveModal(def.matrix, def.rows, def.cols)} onLoad={() => { setLoadTarget(name); setLoadModalOpen(true); }}/>
+                            <MatrixInput key={def.key} rows={numDefRows} cols={numDefCols} matrix={def.matrix} systemType="homogeneous" onMatrixChange={(m) => handleOpsMatrixChange(name, m)} onSave={() => handleOpenSaveModal(def.matrix, def.rows, def.cols)} onLoad={() => { setLoadTarget(name); setLoadModalOpen(true); }} onClipboardError={reportError} />
                         </div>
                     );
                 })}
@@ -2760,7 +2749,7 @@ const App: React.FC = () => {
                     <InfoButton infoKey="matrixInput" />
                 </div>
                 <p className="text-sm text-secondary mb-4 max-w-lg mx-auto">Use integers, fractions, or symbolic constants. Numeric mode requires all entries to be numeric constants.</p>
-                <MatrixInput key={analysisMatrixKey} rows={typeof analysisRows === 'number' && analysisRows > 0 ? analysisRows : 1} cols={typeof analysisCols === 'number' && analysisCols > 0 ? analysisCols : 1} matrix={analysisMatrix} systemType="homogeneous" onMatrixChange={handleAnalysisMatrixChange} onSave={() => handleOpenSaveModal(analysisMatrix, analysisRows, analysisCols)} onLoad={() => { setLoadTarget('analysis'); setLoadModalOpen(true); }} />
+                <MatrixInput key={analysisMatrixKey} rows={typeof analysisRows === 'number' && analysisRows > 0 ? analysisRows : 1} cols={typeof analysisCols === 'number' && analysisCols > 0 ? analysisCols : 1} matrix={analysisMatrix} systemType="homogeneous" onMatrixChange={handleAnalysisMatrixChange} onSave={() => handleOpenSaveModal(analysisMatrix, analysisRows, analysisCols)} onLoad={() => { setLoadTarget('analysis'); setLoadModalOpen(true); }} onClipboardError={reportError} />
             </div>
         </>
     );
@@ -2865,7 +2854,7 @@ const App: React.FC = () => {
 
     const resultsPanel = results ? (
         <div className="print-area">
-            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onCancelDetails={() => { cancelGroup('details', { terminate: true, reason: 'Detail calculation canceled.' }); setLoadingDetails(null); }} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} />
+            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onCancelDetails={() => { cancelGroup('details', { terminate: true, reason: 'Detail calculation canceled.' }); setLoadingDetails(null); }} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} onClipboardError={reportError} />
         </div>
     ) : null;
 

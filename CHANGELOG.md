@@ -21,6 +21,8 @@ Source of truth:
  
 
 ### Fixed
+- Guarded storage access to prevent crashes when storage is blocked or full.
+- Improved clipboard operations with safe fallbacks and error handling.
 
 ### Deprecated
 
