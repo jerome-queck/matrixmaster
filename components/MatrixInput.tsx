@@ -1,6 +1,7 @@
 import React, { memo, useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { Matrix, SystemType } from '../types';
 import { parseInput, stringifySymbolicFraction, validateInput } from '../services/matrixService';
+import { readFromClipboard } from '../services/clipboardService';
 
 interface MatrixInputProps {
     rows: number;
@@ -11,9 +12,10 @@ interface MatrixInputProps {
     onSave: () => void;
     onLoad: () => void;
     title?: string;
+    onClipboardError?: (message: string, data?: unknown) => void;
 }
 
-export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matrix, systemType, onMatrixChange, onSave, onLoad, title }) => {
+export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matrix, systemType, onMatrixChange, onSave, onLoad, title, onClipboardError }) => {
     
     const inputRefs = useRef<(HTMLInputElement | null)[][]>([]);
     const [validationErrors, setValidationErrors] = useState<boolean[][]>([]);
@@ -87,7 +89,7 @@ export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matri
 
     const handlePaste = async () => {
         try {
-            const text = await navigator.clipboard.readText();
+            const text = await readFromClipboard();
             const newMatrix = matrix.map(row => [...row]);
             const pastedRows = text.split(/\r?\n/).map(row => row.split(/[\t,]/));
             
@@ -102,7 +104,7 @@ export const MatrixInput: React.FC<MatrixInputProps> = memo(({ rows, cols, matri
             }
             onMatrixChange(newMatrix);
         } catch (err) {
-            console.error("Failed to paste from clipboard", err);
+            onClipboardError?.('Clipboard unavailable. Unable to paste.', err);
         }
     };
 

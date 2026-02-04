@@ -49,3 +49,22 @@ if (!globalThis.IntersectionObserver) {
   // @ts-expect-error - provide jsdom polyfill.
   globalThis.IntersectionObserver = MockIntersectionObserver;
 }
+
+const warnPattern = /--localstorage-file/;
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = ((warning: any, ...args: any[]) => {
+  const message = typeof warning === 'string' ? warning : warning?.message;
+  if (typeof message === 'string' && warnPattern.test(message)) {
+    return;
+  }
+  return originalEmitWarning.call(process, warning, ...args);
+}) as typeof process.emitWarning;
+
+const dropArg = (arg: string, index: number, all: string[]) =>
+  arg === '--localstorage-file' || all[index - 1] === '--localstorage-file';
+if (process.argv?.length) {
+  process.argv = process.argv.filter((arg, index, all) => !dropArg(arg, index, all));
+}
+if (process.execArgv?.length) {
+  process.execArgv = process.execArgv.filter((arg, index, all) => !dropArg(arg, index, all));
+}
