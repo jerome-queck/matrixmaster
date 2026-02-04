@@ -18,7 +18,7 @@ Source of truth:
 ### Added
 
 ### Changed
-- Documented release-driven workflow, changelog policy, and PR template usage.
+ 
 
 ### Fixed
 
@@ -32,6 +32,7 @@ Source of truth:
 ### Added
 
 ### Changed
+- Documented release-driven workflow, changelog policy, and PR template usage.
 
 ### Fixed
 
