@@ -135,6 +135,8 @@ Release checklist:
 - Bump `package.json` version.
 - Update changelog or release notes.
 - Run `npm run release:check`.
+- Clean workspace artifacts (revert `node_modules/` and `package-lock.json`, remove `.cache/`) before finalizing.
+- Run CI debug pass before finalizing release (check PR CI status and investigate failures).
 - Tag and publish via GitHub (if that is current process).
 - Confirm `CHANGELOG.md` `Unreleased` is empty post-release.
 - Ensure a new version section exists with the release date.
