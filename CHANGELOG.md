@@ -18,7 +18,19 @@ Source of truth:
 ### Added
 
 ### Changed
- 
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+### Security
+
+## 1.0.4 - 2026-02-04
+### Added
+
+### Changed
 
 ### Fixed
 - Guarded storage access to prevent crashes when storage is blocked or full.
