@@ -120,9 +120,30 @@ const sendUpdateStatus = (payload: Record<string, unknown>) => {
 };
 
 const sanitizeUpdateError = (error: unknown) => {
-  const rawMessage = error instanceof Error ? error.message : String(error ?? '');
-  if (rawMessage.includes('latest-mac.yml') && rawMessage.includes('404')) {
-    return 'Update metadata missing for this release. Please try again later.';
+  let rawMessage = '';
+  if (error instanceof Error) {
+    rawMessage = error.message;
+  } else if (typeof error === 'string') {
+    rawMessage = error;
+  } else if (error && typeof error === 'object' && 'message' in error) {
+    rawMessage = String((error as { message?: unknown }).message ?? '');
+  }
+
+  if (!rawMessage) return 'Update error';
+
+  const lower = rawMessage.toLowerCase();
+  if (lower.includes('latest-mac.yml')) {
+    return 'Update metadata missing for this release. Please download the latest version from GitHub Releases.';
+  }
+
+  const headerIndex = rawMessage.indexOf('Headers:');
+  if (headerIndex !== -1) {
+    rawMessage = rawMessage.slice(0, headerIndex).trim();
+  }
+  rawMessage = rawMessage.split('\n')[0]?.trim() || rawMessage.trim();
+
+  if (rawMessage.length > 160) {
+    return `${rawMessage.slice(0, 157)}...`;
   }
   return rawMessage || 'Update error';
 };
