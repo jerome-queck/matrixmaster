@@ -18,6 +18,19 @@ Source of truth:
 ### Added
 
 ### Changed
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+### Security
+
+## 1.1.1 - 2026-02-05
+### Added
+
+### Changed
 - Deferred command palette and library search filtering to keep typing responsive.
 - Virtualized the library list in the load modal to reduce navigation stalls.
 - Avoided rendering closed modal content to cut unnecessary UI work.
