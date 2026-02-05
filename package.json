@@ -1,7 +1,7 @@
 {
   "name": "matrix-master",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Offline-first linear algebra workspace for numeric and symbolic computation.",
   "author": "Matrix Master",
   "type": "commonjs",
@@ -50,6 +50,9 @@
   },
   "optionalDependencies": {
     "dmg-license": "^1.0.11"
+  },
+  "overrides": {
+    "jiti": "^2.4.2"
   },
   "main": "electron-dist/main.js",
   "build": {
