@@ -18,6 +18,9 @@ Source of truth:
 ### Added
 
 ### Changed
+- Deferred command palette and library search filtering to keep typing responsive.
+- Virtualized the library list in the load modal to reduce navigation stalls.
+- Avoided rendering closed modal content to cut unnecessary UI work.
 
 ### Fixed
 

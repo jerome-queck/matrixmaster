@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition, useDeferredValue } from 'react';
 import * as LZString from 'lz-string';
 import { MatrixInput } from './components/MatrixInput';
 import { ResultsDisplay } from './components/ResultsDisplay';
@@ -7,6 +7,7 @@ import { LatexRenderer } from './components/LatexRenderer';
 import { OperationBuilder } from './components/OperationBuilder';
 import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
+import { VirtualizedList } from './components/VirtualizedList';
 import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, normalizeExpression, validateExpression, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
 import { copyToClipboard } from './services/clipboardService';
@@ -17,6 +18,64 @@ import { useBatchRunner } from './hooks/useBatchRunner';
 import { useDelayedFlag } from './hooks/useDelayedFlag';
 
 type AllResultTypes = AnyResult;
+
+type LibraryItemProps = {
+    item: SavedMatrix;
+    onDelete: (id: string) => void;
+    onLoad: (item: SavedMatrix) => void;
+};
+
+const LibraryListItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onLoad }) => (
+    <div className="flex items-center justify-between p-3 glass-input/50 rounded-lg">
+        <div>
+            <h4 className="font-semibold text-ink">{item.name}</h4>
+            <p className="text-xs text-secondary">{item.rows}x{item.cols} • {(item.folder || 'Unsorted')}</p>
+            {item.tags && item.tags.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                    {item.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}
+                </div>
+            )}
+        </div>
+        <div className="flex items-center gap-2">
+            <button onClick={() => onDelete(item.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${item.name}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+            </button>
+            <button onClick={() => onLoad(item)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">Load</button>
+        </div>
+    </div>
+));
+
+const LibraryCardItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onLoad }) => {
+    const previewRows = React.useMemo(() => item.matrix?.slice(0, 2) ?? [], [item.matrix]);
+    const showEllipsis = item.rows > 2;
+    return (
+        <div className="p-3 rounded-xl glass-input/50 border border-slate-200 dark:border-slate-600 flex flex-col gap-3">
+            <div>
+                <h4 className="font-semibold text-ink">{item.name}</h4>
+                <p className="text-xs text-secondary">{item.rows}x{item.cols} • {(item.folder || 'Unsorted')}</p>
+            </div>
+            <div className="text-[11px] text-secondary bg-white/60 rounded-lg px-2 py-2 font-mono overflow-x-auto">
+                {previewRows.map((row, idx) => (
+                    <div key={idx} className="whitespace-nowrap">
+                        {row.map(cell => (cell ?? '•')).join('  ')}
+                    </div>
+                ))}
+                {showEllipsis && <div className="text-secondary">…</div>}
+            </div>
+            {item.tags && item.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {item.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}
+                </div>
+            )}
+            <div className="flex items-center justify-between">
+                <button onClick={() => onDelete(item.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
+                <button onClick={() => onLoad(item)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-xs hover:opacity-90">Load</button>
+            </div>
+        </div>
+    );
+});
 
 const defaultMatrix = (rows: number, cols: number): Matrix => Array(rows).fill(null).map(() => Array(cols).fill(null));
 
@@ -232,12 +291,12 @@ const App: React.FC = () => {
     const DETAIL_CACHE_LIMIT = 30;
     const detailCacheRef = useRef<Map<string, { determinant?: DeterminantResult; inverse?: InverseResult }>>(new Map());
     const keyCounter = useRef(0);
-    const nextKey = () => {
+    const nextKey = useCallback(() => {
         keyCounter.current += 1;
         return keyCounter.current;
-    };
-    const bumpSolverMatrixKey = () => setSolverMatrixKey(prev => prev + 1);
-    const bumpAnalysisMatrixKey = () => setAnalysisMatrixKey(prev => prev + 1);
+    }, []);
+    const bumpSolverMatrixKey = useCallback(() => setSolverMatrixKey(prev => prev + 1), []);
+    const bumpAnalysisMatrixKey = useCallback(() => setAnalysisMatrixKey(prev => prev + 1), []);
     const openInfo = (key: InfoKey | string) => {
         if (!Object.prototype.hasOwnProperty.call(INFO_CONTENT, key)) return;
         setInfoState({ open: true, key: key as InfoKey });
@@ -921,8 +980,9 @@ const App: React.FC = () => {
     }, [matrixDefs, matrixNamesInExpression]);
     const expressionValidation = useMemo(() => validateExpression(expression, validationMatrixDefs), [expression, validationMatrixDefs]);
 
+    const deferredLibrarySearch = useDeferredValue(librarySearch);
     const filteredLibrary = useMemo(() => {
-        const search = librarySearch.trim().toLowerCase();
+        const search = deferredLibrarySearch.trim().toLowerCase();
         return library.filter(item => {
             const matchesFolder = libraryFolderFilter === 'all' || (item.folder || 'Unsorted') === libraryFolderFilter;
             if (!matchesFolder) return false;
@@ -930,7 +990,7 @@ const App: React.FC = () => {
             const tagMatch = item.tags?.some(tag => tag.toLowerCase().includes(search)) ?? false;
             return item.name.toLowerCase().includes(search) || (item.folder || '').toLowerCase().includes(search) || tagMatch;
         });
-    }, [library, librarySearch, libraryFolderFilter]);
+    }, [library, deferredLibrarySearch, libraryFolderFilter]);
 
     const libraryFolders = useMemo(() => {
         const folders = new Set<string>();
@@ -2395,11 +2455,11 @@ const App: React.FC = () => {
         setMatrixToSave(null);
     };
 
-    const handleDeleteFromLibrary = (id: string) => {
+    const handleDeleteFromLibrary = useCallback((id: string) => {
         setLibrary(prev => prev.filter(item => item.id !== id));
-    };
+    }, []);
 
-    const handleLoadFromLibrary = (savedMatrix: SavedMatrix) => {
+    const handleLoadFromLibrary = useCallback((savedMatrix: SavedMatrix) => {
         const parsedMatrix = savedMatrix.matrix.map(row => row.map(cell => cell === null ? null : parseInput(cell)));
         if (loadTarget === 'solver') {
             setRows(savedMatrix.rows);
@@ -2428,7 +2488,7 @@ const App: React.FC = () => {
             }));
         }
         setLoadModalOpen(false);
-    };
+    }, [bumpAnalysisMatrixKey, bumpSolverMatrixKey, loadTarget, nextKey, systemType]);
 
     const handleUseResult = (matrix: ValidMatrix) => {
         setUseResultModal({ open: true, matrix });
@@ -2899,7 +2959,12 @@ const App: React.FC = () => {
         };
         return { id: `plugin-${plugin.id}-${cmd.id}`, label: cmd.label || `${plugin.name} command`, action };
     }));
-    const filteredCommands = [...commands, ...pluginCommands].filter(cmd => cmd.label.toLowerCase().includes(commandQuery.toLowerCase()));
+    const deferredCommandQuery = useDeferredValue(commandQuery);
+    const filteredCommands = useMemo(() => {
+        const search = deferredCommandQuery.trim().toLowerCase();
+        if (!search) return [...commands, ...pluginCommands];
+        return [...commands, ...pluginCommands].filter(cmd => cmd.label.toLowerCase().includes(search));
+    }, [commands, deferredCommandQuery, pluginCommands]);
 
     const inputPanel = (
         <div className="no-print">
@@ -3079,6 +3144,7 @@ const App: React.FC = () => {
                 </main>
             </div>
             {/* --- Modals --- */}
+            {isCommandOpen && (
             <Modal title="Command Palette" isOpen={isCommandOpen} onClose={() => { setCommandOpen(false); setCommandQuery(''); }}>
                 <div className="space-y-3">
                     <input
@@ -3105,6 +3171,8 @@ const App: React.FC = () => {
                     <div className="text-xs text-secondary">Shortcuts: Ctrl/Cmd+K, Ctrl/Cmd+Enter, Ctrl/Cmd+Shift+R</div>
                 </div>
             </Modal>
+            )}
+            {isSaveModalOpen && (
             <Modal title="Save Matrix to Library" isOpen={isSaveModalOpen} onClose={() => setSaveModalOpen(false)}>
                 <form onSubmit={(e) => { e.preventDefault(); handleSaveToLibrary(e.currentTarget.matrixName.value, e.currentTarget.folderName.value, e.currentTarget.tags.value); }} className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3123,6 +3191,8 @@ const App: React.FC = () => {
                     <div className="flex justify-end gap-2"><button type="button" onClick={() => setSaveModalOpen(false)} className="py-2 px-4 rounded-lg glass-btn">Cancel</button><button type="submit" style={{backgroundColor: 'var(--button-bg)'}} className="py-2 px-4 rounded-lg text-white hover:opacity-90">Save</button></div>
                 </form>
             </Modal>
+            )}
+            {isLoadModalOpen && (
             <Modal title="Load Matrix from Library" isOpen={isLoadModalOpen} onClose={() => setLoadModalOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3140,44 +3210,27 @@ const App: React.FC = () => {
                             <button onClick={() => setLibraryView('list')} className={`px-3 py-1 rounded-xl text-xs glass-tab ${libraryView === 'list' ? 'tab active' : ''}`}>List</button>
                         </div>
                     </div>
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                    <div className="space-y-2">
                         {filteredLibrary.length > 0 ? (
                             libraryView === 'list' ? (
-                                filteredLibrary.map(sm => (
-                                    <div key={sm.id} className="flex items-center justify-between p-3 glass-input/50 rounded-lg">
-                                        <div>
-                                            <h4 className="font-semibold text-ink">{sm.name}</h4>
-                                            <p className="text-xs text-secondary">{sm.rows}x{sm.cols} • {(sm.folder || 'Unsorted')}</p>
-                                            {sm.tags && sm.tags.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{sm.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}</div>}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button onClick={() => handleDeleteFromLibrary(sm.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${sm.name}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button>
-                                            <button onClick={() => handleLoadFromLibrary(sm)} style={{backgroundColor: 'var(--button-bg)'}} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">Load</button>
-                                        </div>
-                                    </div>
-                                ))
+                                <VirtualizedList
+                                    itemCount={filteredLibrary.length}
+                                    estimateHeight={96}
+                                    maxHeight={384}
+                                    className="pr-1"
+                                    renderItem={(index) => {
+                                        const sm = filteredLibrary[index];
+                                        return (
+                                            <div key={sm.id} className="pb-2">
+                                                <LibraryListItem item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                                            </div>
+                                        );
+                                    }}
+                                />
                             ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
                                     {filteredLibrary.map(sm => (
-                                        <div key={sm.id} className="p-3 rounded-xl glass-input/50 border border-slate-200 dark:border-slate-600 flex flex-col gap-3">
-                                            <div>
-                                                <h4 className="font-semibold text-ink">{sm.name}</h4>
-                                                <p className="text-xs text-secondary">{sm.rows}x{sm.cols} • {(sm.folder || 'Unsorted')}</p>
-                                            </div>
-                                            <div className="text-[11px] text-secondary bg-white/60 rounded-lg px-2 py-2 font-mono overflow-x-auto">
-                                                {sm.matrix?.slice(0, 2).map((row, idx) => (
-                                                    <div key={idx} className="whitespace-nowrap">
-                                                        {row.map(cell => (cell ?? '•')).join('  ')}
-                                                    </div>
-                                                ))}
-                                                {sm.rows > 2 && <div className="text-secondary">…</div>}
-                                            </div>
-                                            {sm.tags && sm.tags.length > 0 && <div className="flex flex-wrap gap-1">{sm.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}</div>}
-                                            <div className="flex items-center justify-between">
-                                                <button onClick={() => handleDeleteFromLibrary(sm.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
-                                                <button onClick={() => handleLoadFromLibrary(sm)} style={{backgroundColor: 'var(--button-bg)'}} className="py-1 px-3 rounded-lg text-white text-xs hover:opacity-90">Load</button>
-                                            </div>
-                                        </div>
+                                        <LibraryCardItem key={sm.id} item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
                                     ))}
                                 </div>
                             )
@@ -3187,6 +3240,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {useResultModal.open && (
             <Modal title="Use Result As..." isOpen={useResultModal.open} onClose={() => setUseResultModal({ open: false, matrix: null })}>
                 <div className="space-y-3">
                     <p className="text-secondary">Where would you like to send the resulting matrix?</p>
@@ -3196,6 +3251,8 @@ const App: React.FC = () => {
                     <div className="flex flex-wrap gap-2">{['C', 'D', 'E', 'F'].filter(n => !matrixNamesInExpression.includes(n)).map(name => <button key={name} onClick={() => handleSetMatrixFromUsedResult(name)} className="py-2 px-4 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Use as Matrix {name}</button>)}</div>
                 </div>
             </Modal>
+            )}
+            {isExportModalOpen && (
             <Modal title="Export / Import" isOpen={isExportModalOpen} onClose={() => setExportModalOpen(false)}>
                 <div className="space-y-5">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3272,6 +3329,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isShareOpen && (
             <Modal title="Share" isOpen={isShareOpen} onClose={() => setShareOpen(false)}>
                 <div className="space-y-4">
                     <p className="text-sm text-secondary">Share files and LaTeX exports from the current workspace.</p>
@@ -3295,6 +3354,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isToolsOpen && (
             <Modal title="Tools" isOpen={isToolsOpen} onClose={() => setToolsOpen(false)}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex items-center gap-2">
@@ -3365,6 +3426,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isPresetsOpen && (
             <Modal title="Matrix Presets" isOpen={isPresetsOpen} onClose={() => setPresetsOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3402,6 +3465,8 @@ const App: React.FC = () => {
                     <button onClick={handleApplyPreset} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Apply Preset</button>
                 </div>
             </Modal>
+            )}
+            {isPracticeOpen && (
             <Modal title="Guided Practice" isOpen={isPracticeOpen} onClose={() => setPracticeOpen(false)}>
                 <div className="space-y-4">
                     <p className="text-sm text-secondary">Generate a random linear system and solve for x. Check your answer or load into the solver.</p>
@@ -3446,6 +3511,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isBlockOpen && (
             <Modal title="Block Matrix Builder" isOpen={isBlockOpen} onClose={() => setBlockOpen(false)}>
                 <div className="space-y-4">
                     <p className="text-sm text-secondary">Combine four matrices into a 2×2 block matrix.</p>
@@ -3480,6 +3547,8 @@ const App: React.FC = () => {
                     <button onClick={handleApplyBlockMatrix} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Build Block Matrix</button>
                 </div>
             </Modal>
+            )}
+            {isSimplifierOpen && (
             <Modal title="Symbolic Simplifier" isOpen={isSimplifierOpen} onClose={() => setSimplifierOpen(false)}>
                 <div className="space-y-4">
                     <div className="text-sm text-secondary">Simplify a symbolic fraction and inspect the rule trace.</div>
@@ -3507,6 +3576,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isMatrixFunctionsOpen && (
             <Modal title="Matrix Functions" isOpen={isMatrixFunctionsOpen} onClose={() => setMatrixFunctionsOpen(false)}>
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3534,6 +3605,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isJordanOpen && (
             <Modal title="Jordan Form" isOpen={isJordanOpen} onClose={() => setJordanOpen(false)}>
                 <div className="space-y-4">
                     <div>
@@ -3552,6 +3625,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isIterativeOpen && (
             <Modal title="Iterative Solvers" isOpen={isIterativeOpen} onClose={() => setIterativeOpen(false)}>
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3596,6 +3671,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isExerciseOpen && (
             <Modal title="Exercise Packs" isOpen={isExerciseOpen} onClose={() => setExerciseOpen(false)}>
                 <div className="space-y-4">
                     <div className="text-sm text-secondary">Load offline exercise packs (JSON) and auto-grade solutions.</div>
@@ -3624,6 +3701,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isPluginsOpen && (
             <Modal title="Plugins" isOpen={isPluginsOpen} onClose={() => setPluginsOpen(false)}>
                 <div className="space-y-4">
                     <div className="text-sm text-secondary">Import offline plugins (JSON) that register new commands or macros.</div>
@@ -3638,6 +3717,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isVersionsOpen && (
             <Modal title="Project Versions" isOpen={isVersionsOpen} onClose={() => setVersionsOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex gap-2">
@@ -3657,6 +3738,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isStepCompareOpen && (
             <Modal title="Step Compare" isOpen={isStepCompareOpen} onClose={() => setStepCompareOpen(false)}>
                 <div className="space-y-4">
                     <div className="text-sm text-secondary">Upload a JSON file with {`{\"steps\":[{\"matrix\":[...]}]}`} to compare against solver steps.</div>
@@ -3664,6 +3747,8 @@ const App: React.FC = () => {
                     {stepCompareResult && <div className="text-sm text-ink">{stepCompareResult}</div>}
                 </div>
             </Modal>
+            )}
+            {isSparseOpen && (
             <Modal title="Sparse Matrix View" isOpen={isSparseOpen} onClose={() => setSparseOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3725,6 +3810,8 @@ const App: React.FC = () => {
                     })()}
                 </div>
             </Modal>
+            )}
+            {isBatchOpen && (
             <Modal title="Batch Runner" isOpen={isBatchOpen} onClose={() => setBatchOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3780,6 +3867,8 @@ const App: React.FC = () => {
                     )}
                 </div>
             </Modal>
+            )}
+            {isRecipesOpen && (
             <Modal title="Matrix Recipes" isOpen={isRecipesOpen} onClose={() => setRecipesOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3807,6 +3896,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isAssumptionsOpen && (
             <Modal title="Variable Assumptions" isOpen={isAssumptionsOpen} onClose={() => setAssumptionsOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3834,6 +3925,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isProfilesOpen && (
             <Modal title="Workspace Profiles" isOpen={isProfilesOpen} onClose={() => setProfilesOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3857,6 +3950,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isHelpOpen && (
             <Modal title="Offline Help Pack" isOpen={isHelpOpen} onClose={() => setHelpOpen(false)}>
                 <div className="space-y-4 text-sm text-secondary max-h-[60vh] overflow-y-auto pr-2">
                     <div className="flex items-center gap-2 text-xs text-secondary">
@@ -3880,6 +3975,8 @@ const App: React.FC = () => {
                     </ol>
                 </div>
             </Modal>
+            )}
+            {isDocsOpen && (
             <Modal title="Documentation" isOpen={isDocsOpen} onClose={() => setDocsOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3895,6 +3992,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isReportOpen && (
             <Modal title="Print / PDF Report" isOpen={isReportOpen} onClose={() => setReportOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3908,6 +4007,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isCompareModalOpen && (
             <Modal title="Compare Matrices" isOpen={isCompareModalOpen} onClose={() => setCompareModalOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -3961,6 +4062,8 @@ const App: React.FC = () => {
                     })()}
                 </div>
             </Modal>
+            )}
+            {isHistoryOpen && (
             <Modal title="History & Snapshots" isOpen={isHistoryOpen} onClose={() => setHistoryOpen(false)}>
                 <div className="space-y-4">
                     <div className="flex items-center gap-2 text-sm text-secondary">
@@ -4011,6 +4114,8 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {isSettingsOpen && (
             <Modal title="Settings" isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="space-y-6">
                     <div><label className="font-medium text-secondary">Theme</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setTheme('light')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'light' ? 'tab active' : ''}`}>Light</button><button onClick={() => setTheme('dark')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'dark' ? 'tab active' : ''}`}>Dark</button><button onClick={() => setTheme('custom')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${theme === 'custom' ? 'tab active' : ''}`}>Custom</button></div></div>
@@ -4144,17 +4249,22 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            )}
+            {infoState.open && (
             <Modal title={infoState.key ? `About ${INFO_CONTENT[infoState.key].title}` : 'Feature Info'} isOpen={infoState.open} onClose={closeInfo}>
                 <div className="space-y-4 text-sm text-secondary">
                     <p>{infoState.key ? INFO_CONTENT[infoState.key].summary : ''}</p>
                     <button onClick={() => { closeInfo(); setDocsOpen(true); }} className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Open Full Documentation</button>
                 </div>
             </Modal>
+            )}
+            {explainerState.isOpen && (
             <Modal title={`What is ${explainerState.topic}?`} isOpen={explainerState.isOpen} onClose={() => setExplainerState({ isOpen: false, topic: '', content: '' })}>
                 <div className="text-left space-y-4 max-h-[60vh] overflow-y-auto pr-2 text-secondary">
                     {renderExplanationContent(explainerState.content)}
                 </div>
             </Modal>
+            )}
         </div>
     );
 };
