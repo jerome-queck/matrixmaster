@@ -16,16 +16,29 @@ Source of truth:
 
 ## Unreleased
 ### Added
+
+### Changed
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+### Security
+
+## 1.2.1 - 2026-02-06
+### Added
 - Added a core-first interface surface setting (`core` default, optional `advanced`) with persistence in local storage and shared-state imports.
 - Added a consolidated `More` menu for secondary navigation: Advanced Tools, History, Export/Import, Settings, and Documentation.
 - Added an Advanced Tools category hub (Data & Sharing, Study & Practice, Specialist Math, Workspace Utilities).
 
 ### Changed
-- Expanded integration coverage for the simplified core-first UX, including ui-surface persistence and cross-mode primary-action regression checks.
 - Simplified the default top-level UI to emphasize the three primary modes plus Calculate/Analyze, Reset, and matrix Save/Load.
 - Removed dense top-right shortcut buttons and home quick-action cards from the default surface.
 - Renamed Sparse View entry point to the student-friendly label "Sparse Matrix View."
 - Updated integration coverage for the new More -> Advanced Tools navigation flow.
+- Expanded integration coverage for the simplified core-first UX, including ui-surface persistence and cross-mode primary-action regression checks.
 
 ### Fixed
 
