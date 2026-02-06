@@ -21,6 +21,7 @@ Source of truth:
 - Added an Advanced Tools category hub (Data & Sharing, Study & Practice, Specialist Math, Workspace Utilities).
 
 ### Changed
+- Expanded integration coverage for the simplified core-first UX, including ui-surface persistence and cross-mode primary-action regression checks.
 - Simplified the default top-level UI to emphasize the three primary modes plus Calculate/Analyze, Reset, and matrix Save/Load.
 - Removed dense top-right shortcut buttons and home quick-action cards from the default surface.
 - Renamed Sparse View entry point to the student-friendly label "Sparse Matrix View."

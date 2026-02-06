@@ -146,4 +146,45 @@ describe('App integration', () => {
     expect(within(toolsDialog).getByRole('button', { name: /data & sharing/i })).toBeInTheDocument();
     expect(within(toolsDialog).getByRole('button', { name: /specialist math/i })).toBeInTheDocument();
   });
+
+  it('defaults ui surface to core when no ui-surface key is stored', () => {
+    setWorkerMock();
+    render(<App />);
+
+    expect(screen.queryByText('Specialist math, utilities, and study helpers.')).not.toBeInTheDocument();
+  });
+
+  it('restores advanced ui surface from storage', async () => {
+    setWorkerMock();
+    const storage = {
+      getItem: vi.fn((key: string) => {
+        if (key === 'matrix-master-ui-surface') return 'advanced';
+        return null;
+      }),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    Object.defineProperty(window, 'localStorage', {
+      value: storage,
+      configurable: true,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Specialist math, utilities, and study helpers.')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps primary action labels correct across all core modes', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^analysis$/i }));
+    expect(screen.getByRole('button', { name: /^analyze$/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^matrix operations$/i }));
+    expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+  });
 });
