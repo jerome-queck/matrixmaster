@@ -4,19 +4,24 @@ Matrix Master is an offline-first linear algebra workspace for numeric and symbo
 
 ## Feature Overview
 
+### Core-First Interface
+- **Primary workflows only** — `System Solver`, `Matrix Operations`, and `Analysis` are the default top-level experience.
+- **Focused actions** — Calculate/Analyze, Reset, and matrix-level Save/Load are prioritized for first-run clarity.
+- **More menu** — Secondary actions (`Advanced Tools`, `History`, `Export / Import`, `Settings`, `Documentation`) are grouped in one place.
+
 ### Core Solvers
 - **System Solver** — Row-reduction with step-by-step elimination.
 - **Matrix Operations** — Evaluate expressions like `A * B`, `A^2`, `(A + B) * C` and more.
 - **Analysis** — Rank, trace, LU/QR/SVD, eigenvalues/vectors, and related diagnostics.
 
 ### Advanced Tools
+- **Advanced Tools hub** — Progressive disclosure categories for Data & Sharing, Study & Practice, Specialist Math, and Workspace Utilities.
 - **Iterative Solvers** — Jacobi, Gauss–Seidel, CG, GMRES with preconditioning.
 - **Symbolic Simplifier** — Rule-by-rule algebra cleanup.
 - **Batch Runner** — Run expressions or analysis across saved matrices.
-- **Sparse View** — CSR/CSC representations.
+- **Sparse Matrix View** — CSR/CSC representations.
 
 ### Productivity
-- **Command Palette** — Quick actions (Cmd/Ctrl+K).
 - **Project Versions** — Save/restore snapshots of your workspace.
 - **History** — Time-based entries for previous runs.
 - **Tutor Mode** — Guided explanations.

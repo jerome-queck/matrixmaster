@@ -12,7 +12,7 @@ import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builde
 import { buildStepsBundle } from './services/exportService';
 import { copyToClipboard } from './services/clipboardService';
 import { createSafeStorage, safeJsonParse } from './services/storageService';
-import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep } from './types';
+import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep, UiSurface } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
 import { useDelayedFlag } from './hooks/useDelayedFlag';
@@ -285,7 +285,6 @@ const App: React.FC = () => {
     const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-    const [shareButtonText, setShareButtonText] = useState('Share File');
     const [isShareOpen, setShareOpen] = useState(false);
     const [resultsKey, setResultsKey] = useState<number>(Date.now());
     const DETAIL_CACHE_LIMIT = 30;
@@ -414,10 +413,11 @@ const App: React.FC = () => {
     const [isReportOpen, setReportOpen] = useState(false);
     const [isToolsOpen, setToolsOpen] = useState(false);
     const [isDocsOpen, setDocsOpen] = useState(false);
+    const [isMoreOpen, setMoreOpen] = useState(false);
+    const [advancedToolsCategory, setAdvancedToolsCategory] = useState<'overview' | 'data' | 'study' | 'math' | 'workspace'>('overview');
+    const [uiSurface, setUiSurface] = useState<UiSurface>('core');
     const [printMode, setPrintMode] = useState<'none' | 'report' | 'batch' | 'docs'>('none');
     const [infoState, setInfoState] = useState<{ open: boolean; key: keyof typeof INFO_CONTENT | null }>({ open: false, key: null });
-    const [isCommandOpen, setCommandOpen] = useState(false);
-    const [commandQuery, setCommandQuery] = useState('');
     const [splitRatio, setSplitRatio] = useState(0.55);
     const [isResizing, setIsResizing] = useState(false);
     const splitContainerRef = useRef<HTMLDivElement | null>(null);
@@ -543,6 +543,7 @@ const App: React.FC = () => {
     // --- State Restoration & Local Storage ---
     const PROFILE_LIST_KEY = 'matrix-master-profiles';
     const ACTIVE_PROFILE_KEY = 'matrix-master-active-profile';
+    const UI_SURFACE_KEY = 'matrix-master-ui-surface';
     const profileStorageKey = (profileId: string, key: string) => `matrix-master:${profileId}:${key}`;
 
     const migrateLegacyStorage = (profileId: string) => {
@@ -627,6 +628,14 @@ const App: React.FC = () => {
     };
 
     useEffect(() => {
+        const storedSurface = storage.getItem(UI_SURFACE_KEY);
+        if (storedSurface === 'advanced' || storedSurface === 'core') {
+            setUiSurface(storedSurface);
+        } else {
+            setUiSurface('core');
+            storage.setItem(UI_SURFACE_KEY, 'core');
+        }
+
         const storedProfiles = storage.getItem(PROFILE_LIST_KEY);
         const parsedProfiles = storedProfiles ? safeJsonParse(storedProfiles, [], Array.isArray) : [];
         if (parsedProfiles.length === 0) {
@@ -661,6 +670,10 @@ const App: React.FC = () => {
             }
         }
     }, []);
+
+    useEffect(() => {
+        storage.setItem(UI_SURFACE_KEY, uiSurface);
+    }, [storage, uiSurface]);
 
 
     useEffect(() => {
@@ -919,11 +932,6 @@ const App: React.FC = () => {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             const key = event.key.toLowerCase();
-            if ((event.metaKey || event.ctrlKey) && key === 'k') {
-                event.preventDefault();
-                setCommandOpen(true);
-                return;
-            }
             if ((event.metaKey || event.ctrlKey) && key === 'enter') {
                 event.preventDefault();
                 handleCalculate();
@@ -1473,6 +1481,7 @@ const App: React.FC = () => {
         }
 
         return {
+            uiSurface,
             appMode,
             systemType,
             rows,
@@ -1492,6 +1501,9 @@ const App: React.FC = () => {
 
     const applySharedState = (state: SharedState) => {
         if (!state) return;
+        if (state.uiSurface === 'core' || state.uiSurface === 'advanced') {
+            setUiSurface(state.uiSurface);
+        }
         let nextMode = (state.appMode || 'systemSolver') as string;
         if (nextMode === 'determinantOfOperation') {
             nextMode = 'matrixOperations';
@@ -2259,10 +2271,6 @@ const App: React.FC = () => {
     };
 
     // --- Universal Handlers ---
-    const handleShare = () => {
-        setShareOpen(true);
-    };
-
     const handleCancelCalculation = () => {
         cancelGroup('calculate', { terminate: true, reason: 'Calculation canceled.' });
         setIsLoading(false);
@@ -2918,54 +2926,6 @@ const App: React.FC = () => {
         );
     };
 
-    const commands = [
-        { id: 'calculate', label: appMode === 'analysis' ? 'Analyze' : 'Calculate', action: handleCalculate },
-        { id: 'reset', label: 'Reset Workspace', action: handleReset },
-        { id: 'history', label: 'Open History', action: () => setHistoryOpen(true) },
-        { id: 'settings', label: 'Open Settings', action: () => setSettingsOpen(true) },
-        { id: 'tools', label: 'Open Tools', action: () => setToolsOpen(true) },
-        { id: 'export', label: 'Export / Import', action: () => setExportModalOpen(true) },
-        { id: 'report', label: 'Open Report', action: () => setReportOpen(true) },
-        { id: 'docs', label: 'Open Documentation', action: () => setDocsOpen(true) },
-        { id: 'mode-system', label: 'Switch to System Solver', action: () => handleModeChange('systemSolver') },
-        { id: 'mode-ops', label: 'Switch to Matrix Operations', action: () => handleModeChange('matrixOperations') },
-        { id: 'mode-analysis', label: 'Switch to Analysis', action: () => handleModeChange('analysis') },
-        { id: 'tutor-on', label: 'Tutor Mode On', action: () => setTutorMode(true) },
-        { id: 'tutor-off', label: 'Tutor Mode Off', action: () => setTutorMode(false) }
-    ];
-    const pluginCommands = plugins.flatMap(plugin => (plugin.commands || []).map((cmd: any) => {
-        const action = () => {
-            if (cmd.action?.type === 'setExpression') {
-                setExpression(String(cmd.action.value || '').toUpperCase());
-                setBuilderMode('text');
-            } else if (cmd.action?.type === 'setMode') {
-                if (cmd.action.value === 'determinantOfOperation') {
-                    logDiagnostic('plugin-setMode-blocked', { mode: cmd.action.value });
-                    pushToast('Determinant of Operation has been removed. Use Matrix Operations instead.', 'info');
-                    return;
-                }
-                handleModeChange(cmd.action.value as AppMode);
-            } else if (cmd.action?.type === 'openTool') {
-                const target = cmd.action.value;
-                if (target === 'practice') setPracticeOpen(true);
-                if (target === 'functions') setMatrixFunctionsOpen(true);
-                if (target === 'iterative') setIterativeOpen(true);
-                if (target === 'simplifier') setSimplifierOpen(true);
-                if (target === 'jordan') setJordanOpen(true);
-                if (target === 'versions') setVersionsOpen(true);
-                if (target === 'plugins') setPluginsOpen(true);
-                if (target === 'exercises') setExerciseOpen(true);
-            }
-        };
-        return { id: `plugin-${plugin.id}-${cmd.id}`, label: cmd.label || `${plugin.name} command`, action };
-    }));
-    const deferredCommandQuery = useDeferredValue(commandQuery);
-    const filteredCommands = useMemo(() => {
-        const search = deferredCommandQuery.trim().toLowerCase();
-        if (!search) return [...commands, ...pluginCommands];
-        return [...commands, ...pluginCommands].filter(cmd => cmd.label.toLowerCase().includes(search));
-    }, [commands, deferredCommandQuery, pluginCommands]);
-
     const inputPanel = (
         <div className="no-print">
             {appMode === 'systemSolver' ? renderSystemSolverSetup() : appMode === 'analysis' ? renderAnalysisSetup() : renderMatrixOpsSetup()}
@@ -2984,9 +2944,6 @@ const App: React.FC = () => {
                         <button onClick={handleCancelCalculation} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl">
                             Cancel
                         </button>
-                    )}
-                    {appMode !== 'analysis' && (
-                        <button onClick={handleShare} className="flex items-center justify-center glass-btn font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>{shareButtonText}</button>
                     )}
                     <button onClick={handleReset} className="flex items-center justify-center glass-btn glass-btn-danger font-bold py-3 px-6 rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566z" clipRule="evenodd" /></svg>Reset</button>
                 </div>
@@ -3034,14 +2991,9 @@ const App: React.FC = () => {
                 )}
                 <header className="header-panel text-center mb-8 relative no-print glass-panel rounded-3xl px-6 py-6">
                     <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold aurora-title">Matrix Master</h1>
-                    <p className="sm:text-lg text-secondary mt-2">A Comprehensive Linear Algebra Calculator</p>
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                        <button onClick={() => setHistoryOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open history"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 00-7.938 7H1a1 1 0 000 2h3a1 1 0 001-1V7a1 1 0 10-2 0v.057A6 6 0 1110 16a1 1 0 100 2A8 8 0 1010 2z" /><path d="M10 5a1 1 0 011 1v3.382l2.447 1.224a1 1 0 11-.894 1.788l-3-1.5A1 1 0 019 11V6a1 1 0 011-1z" /></svg></button>
-                        <button onClick={() => setExportModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Export or import"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 14a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1zM13 5V3a1 1 0 112 0v2h2a1 1 0 110 2h-2v2a1 1 0 11-2 0V7h-2a1 1 0 110-2h2z" /><path d="M3 6a2 2 0 012-2h3a1 1 0 110 2H5v8h10v-3a1 1 0 112 0v3a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" /></svg></button>
-                        <button onClick={() => setCompareModalOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Compare matrices"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 5a2 2 0 012-2h2a1 1 0 110 2H6v10h2a1 1 0 110 2H6a2 2 0 01-2-2V5z" /><path d="M16 5a2 2 0 00-2-2h-2a1 1 0 100 2h2v10h-2a1 1 0 100 2h2a2 2 0 002-2V5z" /><path d="M7 10a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" /></svg></button>
-                        <button onClick={() => setReportOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Print report"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a2 2 0 00-2 2v2h12V4a2 2 0 00-2-2H6z" /><path fillRule="evenodd" d="M4 9a2 2 0 00-2 2v3a2 2 0 002 2h2v-2H4v-3h12v3h-2v2h2a2 2 0 002-2v-3a2 2 0 00-2-2H4z" clipRule="evenodd" /><path d="M6 12h8v6H6v-6z" /></svg></button>
-                        <button onClick={() => setToolsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open tools"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M11.3 1.046a1 1 0 00-1.2.49l-.902 1.61a6.946 6.946 0 00-1.643.95l-1.8-.6a1 1 0 00-1.182.47l-1.2 2.078a1 1 0 00.272 1.272l1.477 1.134a7.01 7.01 0 000 1.9l-1.477 1.134a1 1 0 00-.272 1.272l1.2 2.078a1 1 0 001.182.47l1.8-.6c.508.39 1.058.715 1.643.95l.902 1.61a1 1 0 001.2.49l2.4-.8a1 1 0 00.68-1.02l-.16-1.94a7.04 7.04 0 001.32-1.32l1.94.16a1 1 0 001.02-.68l.8-2.4a1 1 0 00-.49-1.2l-1.61-.902a6.946 6.946 0 00-.95-1.643l.6-1.8a1 1 0 00-.47-1.182l-2.078-1.2a1 1 0 00-1.272.272l-1.134 1.477a7.01 7.01 0 00-1.9 0L12.3 1.318a1 1 0 00-1-0.272zM10 7a3 3 0 110 6 3 3 0 010-6z" /></svg></button>
-                        <button onClick={() => setSettingsOpen(true)} className="p-2 rounded-full glass-btn" aria-label="Open settings"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
+                    <p className="sm:text-lg text-secondary mt-2">Core-first linear algebra workflows.</p>
+                    <div className="absolute top-4 right-4">
+                        <button onClick={() => setMoreOpen(true)} className="px-3 py-2 rounded-lg glass-btn text-sm font-medium" aria-label="Open more menu">More</button>
                     </div>
                 </header>
                 {(updateStatus.state === 'available' || updateStatus.state === 'ready') && updateToastVisible && (
@@ -3068,23 +3020,25 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                <div className="no-print mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <button onClick={() => setCommandOpen(true)} className="ios-action-card">
-                        <div className="ios-action-kicker">Quick Action</div>
-                        <div className="ios-action-title">Command Palette</div>
-                        <div className="ios-action-subtitle">Search anything fast. Cmd/Ctrl + K.</div>
-                    </button>
-                    <button onClick={() => setIterativeOpen(true)} className="ios-action-card">
-                        <div className="ios-action-kicker">Core Mode</div>
-                        <div className="ios-action-title">Iterative Solvers</div>
-                        <div className="ios-action-subtitle">Run Jacobi, GS, CG, GMRES with preconditioning.</div>
-                    </button>
-                    <button onClick={() => setSimplifierOpen(true)} className="ios-action-card">
-                        <div className="ios-action-kicker">Core Tool</div>
-                        <div className="ios-action-title">Symbolic Simplifier</div>
-                        <div className="ios-action-subtitle">Trace rule-by-rule algebra cleanup.</div>
-                    </button>
-                </div>
+                {uiSurface === 'advanced' && (
+                    <div className="no-print mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <button onClick={() => setToolsOpen(true)} className="ios-action-card">
+                            <div className="ios-action-kicker">Advanced</div>
+                            <div className="ios-action-title">Advanced Tools</div>
+                            <div className="ios-action-subtitle">Specialist math, utilities, and study helpers.</div>
+                        </button>
+                        <button onClick={() => setExportModalOpen(true)} className="ios-action-card">
+                            <div className="ios-action-kicker">Data</div>
+                            <div className="ios-action-title">Export / Import</div>
+                            <div className="ios-action-subtitle">Share matrices and workspace state files.</div>
+                        </button>
+                        <button onClick={() => setHistoryOpen(true)} className="ios-action-card">
+                            <div className="ios-action-kicker">Workspace</div>
+                            <div className="ios-action-title">History</div>
+                            <div className="ios-action-subtitle">Load snapshots and compare prior work.</div>
+                        </button>
+                    </div>
+                )}
 
                 <div className="flex glass-panel rounded-2xl p-1 mb-6 no-print">
                     <button onClick={() => handleModeChange('systemSolver')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'systemSolver' ? 'active' : ''}`}>System Solver</button>
@@ -3144,31 +3098,14 @@ const App: React.FC = () => {
                 </main>
             </div>
             {/* --- Modals --- */}
-            {isCommandOpen && (
-            <Modal title="Command Palette" isOpen={isCommandOpen} onClose={() => { setCommandOpen(false); setCommandQuery(''); }}>
+            {isMoreOpen && (
+            <Modal title="More" isOpen={isMoreOpen} onClose={() => setMoreOpen(false)}>
                 <div className="space-y-3">
-                    <input
-                        autoFocus
-                        value={commandQuery}
-                        onChange={(e) => setCommandQuery(e.target.value)}
-                        placeholder="Type a command..."
-                        className="w-full rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                    <div className="max-h-72 overflow-y-auto space-y-2">
-                        {filteredCommands.length === 0 && (
-                            <div className="text-sm text-secondary">No matching commands.</div>
-                        )}
-                        {filteredCommands.map(cmd => (
-                            <button
-                                key={cmd.id}
-                                onClick={() => { cmd.action(); setCommandOpen(false); setCommandQuery(''); }}
-                                className="w-full text-left px-3 py-2 rounded-lg glass-btn hover:bg-white/10"
-                            >
-                                {cmd.label}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="text-xs text-secondary">Shortcuts: Ctrl/Cmd+K, Ctrl/Cmd+Enter, Ctrl/Cmd+Shift+R</div>
+                    <button onClick={() => { setToolsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Advanced Tools</button>
+                    <button onClick={() => { setHistoryOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">History</button>
+                    <button onClick={() => { setExportModalOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Export / Import</button>
+                    <button onClick={() => { setSettingsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Settings</button>
+                    <button onClick={() => { setDocsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Documentation</button>
                 </div>
             </Modal>
             )}
@@ -3335,7 +3272,7 @@ const App: React.FC = () => {
                 <div className="space-y-4">
                     <p className="text-sm text-secondary">Share files and LaTeX exports from the current workspace.</p>
                     <div className="flex gap-2">
-                        <button onClick={() => { try { exportStateAsJson(true); setShareOpen(false); setShareButtonText('Downloaded!'); setTimeout(() => setShareButtonText('Share File'), 2000); } catch (e) { reportError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
+                        <button onClick={() => { try { exportStateAsJson(true); setShareOpen(false); } catch (e) { reportError(e instanceof Error ? e.message : 'Share failed.'); } }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Share File</button>
                         <button onClick={() => { try { exportStateAsJson(false); } catch (e) { reportError(e instanceof Error ? e.message : 'Export failed.'); } }} className="flex-1 py-2 px-3 rounded-lg glass-btn text-sm">Export JSON</button>
                     </div>
                     <div className="space-y-2">
@@ -3356,75 +3293,69 @@ const App: React.FC = () => {
             </Modal>
             )}
             {isToolsOpen && (
-            <Modal title="Tools" isOpen={isToolsOpen} onClose={() => setToolsOpen(false)}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setPresetsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Presets</button>
-                        <InfoButton infoKey="presets" />
+            <Modal title="Advanced Tools" isOpen={isToolsOpen} onClose={() => { setToolsOpen(false); setAdvancedToolsCategory('overview'); }}>
+                {advancedToolsCategory === 'overview' ? (
+                    <div className="space-y-3">
+                        <button onClick={() => setAdvancedToolsCategory('data')} className="w-full text-left p-3 rounded-lg glass-btn">
+                            <div className="font-semibold text-ink">Data & Sharing</div>
+                            <div className="text-sm text-secondary">Reports, exports, and sharing tools.</div>
+                        </button>
+                        <button onClick={() => setAdvancedToolsCategory('study')} className="w-full text-left p-3 rounded-lg glass-btn">
+                            <div className="font-semibold text-ink">Study & Practice</div>
+                            <div className="text-sm text-secondary">Guided practice and exercise workflows.</div>
+                        </button>
+                        <button onClick={() => setAdvancedToolsCategory('math')} className="w-full text-left p-3 rounded-lg glass-btn">
+                            <div className="font-semibold text-ink">Specialist Math</div>
+                            <div className="text-sm text-secondary">Advanced linear algebra operations and views.</div>
+                        </button>
+                        <button onClick={() => setAdvancedToolsCategory('workspace')} className="w-full text-left p-3 rounded-lg glass-btn">
+                            <div className="font-semibold text-ink">Workspace Utilities</div>
+                            <div className="text-sm text-secondary">Profiles, versions, plugins, and comparisons.</div>
+                        </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setSparseOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Sparse View (CSR/CSC)</button>
-                        <InfoButton infoKey="sparse" />
+                ) : (
+                    <div className="space-y-3">
+                        <button onClick={() => setAdvancedToolsCategory('overview')} className="py-2 px-3 rounded-lg glass-btn text-sm">Back to categories</button>
+                        {advancedToolsCategory === 'data' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => { setExportModalOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Export / Import</button>
+                                <button onClick={() => { setShareOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Share</button>
+                                <button onClick={() => { setReportOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">PDF Report</button>
+                                <button onClick={() => { setBatchOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Batch Runner</button>
+                            </div>
+                        )}
+                        {advancedToolsCategory === 'study' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => { setPracticeOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Guided Practice</button>
+                                <button onClick={() => { setExerciseOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Exercise Packs</button>
+                                <button onClick={() => { setHelpOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Offline Help Pack</button>
+                            </div>
+                        )}
+                        {advancedToolsCategory === 'math' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => { setIterativeOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Iterative Solvers</button>
+                                <button onClick={() => { setJordanOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Jordan Form</button>
+                                <button onClick={() => { setMatrixFunctionsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Matrix Functions</button>
+                                <button onClick={() => { setSimplifierOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Symbolic Simplifier</button>
+                                <button onClick={() => { setSparseOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Sparse Matrix View</button>
+                                <button onClick={() => { setBlockOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Block Matrix Builder</button>
+                                <button onClick={() => { setPresetsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Matrix Presets</button>
+                                <button onClick={() => { setAssumptionsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Variable Assumptions</button>
+                            </div>
+                        )}
+                        {advancedToolsCategory === 'workspace' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => { setProfilesOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Workspace Profiles</button>
+                                <button onClick={() => { setVersionsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Project Versions</button>
+                                <button onClick={() => { setPluginsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Plugins</button>
+                                <button onClick={() => { setCompareModalOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Compare Matrices</button>
+                                <button onClick={() => { setRecipesOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Matrix Recipes</button>
+                                <button onClick={() => { setStepCompareOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Step Compare</button>
+                                <button onClick={() => { setDocsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Documentation</button>
+                            </div>
+                        )}
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setBatchOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Batch Runner</button>
-                        <InfoButton infoKey="batch" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setRecipesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Recipes</button>
-                        <InfoButton infoKey="recipes" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setAssumptionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Variable Assumptions</button>
-                        <InfoButton infoKey="assumptions" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setProfilesOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Workspace Profiles</button>
-                        <InfoButton infoKey="profiles" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setSimplifierOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Symbolic Simplifier</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setMatrixFunctionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Matrix Functions</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setJordanOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Jordan Form</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setIterativeOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Iterative Solvers</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setExerciseOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Exercise Packs</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setPluginsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Plugins</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setVersionsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Project Versions</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setStepCompareOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Step Compare</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setPracticeOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Guided Practice</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setBlockOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Block Matrix Builder</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setHelpOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Offline Help Pack</button>
-                        <InfoButton infoKey="help" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setDocsOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg glass-btn">Documentation</button>
-                        <InfoButton infoKey="documentation" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => { setReportOpen(true); setToolsOpen(false); }} className="flex-1 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">PDF Report</button>
-                        <InfoButton infoKey="report" />
-                    </div>
-                </div>
+                )}
             </Modal>
             )}
             {isPresetsOpen && (
@@ -4135,6 +4066,13 @@ const App: React.FC = () => {
                     )}
                     <div><label className="font-medium text-secondary">Display Density</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setDensity('comfortable')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'comfortable' ? 'tab active' : ''}`}>Comfortable</button><button onClick={() => setDensity('compact')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${density === 'compact' ? 'tab active' : ''}`}>Compact</button></div></div>
                     <div><label className="font-medium text-secondary">Font Size</label><div className="flex glass-panel rounded-2xl p-1 mt-1"><button onClick={() => setFontSize('small')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'small' ? 'tab active' : ''}`}>Small</button><button onClick={() => setFontSize('medium')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'medium' ? 'tab active' : ''}`}>Medium</button><button onClick={() => setFontSize('large')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${fontSize === 'large' ? 'tab active' : ''}`}>Large</button></div></div>
+                    <div>
+                        <label className="font-medium text-secondary">Interface Surface</label>
+                        <div className="flex glass-panel rounded-2xl p-1 mt-1">
+                            <button onClick={() => setUiSurface('core')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${uiSurface === 'core' ? 'tab active' : ''}`}>Core</button>
+                            <button onClick={() => setUiSurface('advanced')} className={`flex-1 py-1 rounded-xl text-sm glass-tab ${uiSurface === 'advanced' ? 'tab active' : ''}`}>Advanced</button>
+                        </div>
+                    </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm text-secondary">
                             <span>App Version</span>

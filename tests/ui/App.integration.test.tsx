@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import App from '../../App';
@@ -22,16 +22,21 @@ describe('App integration', () => {
       terminate() {}
     };
   };
-  const openTools = async (user: ReturnType<typeof userEvent.setup>) => {
+  const openMore = async (user: ReturnType<typeof userEvent.setup>) => {
     const header = screen.getAllByRole('banner')[0];
-    await user.click(within(header).getByRole('button', { name: /open tools/i }));
+    await user.click(within(header).getByRole('button', { name: /open more menu/i }));
+    const title = await screen.findByText('More', { selector: 'h2' });
+    const dialog = title.closest('[role="dialog"]');
+    if (!dialog) throw new Error('More dialog not found');
+    return dialog as HTMLElement;
   };
   const openExportImport = async (user: ReturnType<typeof userEvent.setup>) => {
-    const header = screen.getAllByRole('banner')[0];
-    await user.click(within(header).getByRole('button', { name: /export or import/i }));
+    const moreDialog = await openMore(user);
+    await user.click(within(moreDialog).getByRole('button', { name: /export \/ import/i }));
   };
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     restoreClipboard();
     Object.defineProperty(window, 'localStorage', {
@@ -98,10 +103,11 @@ describe('App integration', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await openTools(user);
-    const toolsDialog = screen.getByRole('dialog', { name: /tools/i });
-    const profilesButtons = within(toolsDialog).getAllByRole('button', { name: /workspace profiles/i });
-    await user.click(profilesButtons[0]);
+    const moreDialog = await openMore(user);
+    await user.click(within(moreDialog).getByRole('button', { name: /advanced tools/i }));
+    const toolsDialog = screen.getByRole('dialog', { name: /advanced tools/i });
+    await user.click(within(toolsDialog).getByRole('button', { name: /workspace utilities/i }));
+    await user.click(within(toolsDialog).getByRole('button', { name: /workspace profiles/i }));
 
     expect(screen.getByText('Default')).toBeInTheDocument();
   });
@@ -117,5 +123,27 @@ describe('App integration', () => {
     expect(dialog).not.toBeNull();
     const { getByRole } = within(dialog as HTMLElement);
     expect(getByRole('button', { name: /^copy$/i })).toBeInTheDocument();
+  });
+
+  it('shows core-first controls by default and hides top-level advanced shortcuts', () => {
+    setWorkerMock();
+    render(<App />);
+
+    expect(screen.getByRole('button', { name: /open more menu/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /calculate/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open tools/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /export or import/i })).not.toBeInTheDocument();
+  });
+
+  it('opens advanced tools from more menu', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const moreDialog = await openMore(user);
+    await user.click(within(moreDialog).getByRole('button', { name: /advanced tools/i }));
+    const toolsDialog = screen.getByRole('dialog', { name: /advanced tools/i });
+    expect(within(toolsDialog).getByRole('button', { name: /data & sharing/i })).toBeInTheDocument();
+    expect(within(toolsDialog).getByRole('button', { name: /specialist math/i })).toBeInTheDocument();
   });
 });

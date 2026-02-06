@@ -40,6 +40,7 @@ export type ValidMatrix = SymbolicFraction[][];
 
 export type SystemType = 'homogeneous' | 'non-homogeneous';
 export type AppMode = 'systemSolver' | 'matrixOperations' | 'analysis';
+export type UiSurface = 'core' | 'advanced';
 
 export type AnalysisMode = 'exact' | 'numeric';
 
@@ -250,6 +251,7 @@ type SerializableMatrix = string;
 type SerializableMatrixDefs = Record<string, { rows: number | ''; cols: number | ''; matrix: SerializableMatrix }>;
 
 export interface SharedState {
+    uiSurface?: UiSurface;
     appMode: AppMode;
     systemType?: SystemType;
     rows?: number | '';
