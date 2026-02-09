@@ -27,6 +27,22 @@ Source of truth:
 
 ### Security
 
+## 1.2.2 - 2026-02-09
+### Added
+
+### Changed
+- Narrowed Electron packaging inputs to include only runtime web assets (`dist/index.html` and `dist/assets/**`) to prevent recursive artifact bundling.
+
+### Fixed
+- Fixed Electron packaging reliability with modern Node versions by applying a persistent upstream patch for `app-builder-lib` command spawning.
+- Normalized desktop installer artifact sizes by excluding release outputs from packaged app contents.
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.2.1 - 2026-02-06
 ### Added
 - Added a core-first interface surface setting (`core` default, optional `advanced`) with persistence in local storage and shared-state imports.
