@@ -17,13 +17,18 @@ Top-level layout (current reality):
 - `App.tsx` main React app shell.
 - `index.tsx` entry point.
 - `index.css` global styles.
+- `index.html` Vite HTML template.
 - `components/` UI components.
 - `hooks/` React hooks.
 - `services/` domain and service logic.
 - `types.ts` shared types.
+- `global.d.ts` ambient type declarations.
 - `tests/` automated tests.
 - `electron/` Electron app entry/config.
 - `scripts/` verification and release helpers.
+- `assets/` Electron build resources (icons, etc.).
+- `metadata.json` app metadata used by the UI.
+- `postcss.config.cjs`, `tailwind.config.cjs` styling/tooling config.
 - `dist/` web build output (generated).
 - `electron-dist/` Electron build output (generated).
 - `vite.config.ts` Vite config.
@@ -32,19 +37,23 @@ Top-level layout (current reality):
 Notes:
 - `tests/` includes `tests/calculation.test.ts` and a Vitest suite.
 - `electron/` contains Electron entry and build config.
-- `scripts/` hosts `verify` scripts used as CI/local quality gates.
+- `scripts/` hosts `verify` scripts and `check-release-artifacts.js`.
 
 ## Build, Test, and Development Commands
 Use the repository scripts exactly as defined in `package.json`:
 - `npm run dev` — run the local Vite dev server.
 - `npm run build` — build the web bundle to `dist/`.
+- `npm run preview` — preview the production build locally.
 - `npm run test` — run all tests (`test:calc` + `test:ui`).
 - `npm run test:calc` — run calculation tests via node + ts-node.
 - `npm run test:ui` — run Vitest UI suite.
+- `npm run electron:dev` — Electron dev (Vite + main process).
+- `npm run electron:build` — build web + Electron main/preload.
+- `npm run electron:dist` — package Electron installers/artifacts.
 - `npm run verify` — run standard verification checks.
 - `npm run verify:desktop` — desktop-focused verification.
 - `npm run verify:full` — full verification battery.
-- `npm run release:check` — release gating checks (build + tests + electron dist).
+- `npm run release:check` — release gating checks (version, build, tests, electron dist, artifact check).
 
 Guidance:
 - Small changes: `npm run test`.
