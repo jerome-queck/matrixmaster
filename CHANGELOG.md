@@ -27,6 +27,28 @@ Source of truth:
 
 ### Security
 
+## 1.3.1 - 2026-03-02
+### Added
+- Added route-bootstrap registration for feature routes so extension surfaces are wired into top-level navigation/command discovery without direct `App.tsx` edits.
+- Added Analysis discovery panel and route-driven launch commands for advanced/exact workflows.
+- Added deterministic input-required placeholder results for route entries that need user inputs before computation.
+- Added targeted UI/persistence regression coverage for route discovery, report adapters, and `.mmatrix` compatibility behaviors.
+
+### Changed
+- Migrated runtime library persistence flow to catalog-first storage wiring while preserving legacy compatibility paths.
+- Expanded shared report/export adapter wiring so exact and advanced route-driven workflows publish normalized result payloads more consistently.
+- Updated report-mode resolution to infer from normalized result shape for better analysis/operations report rendering consistency.
+
+### Fixed
+- Removed prior/fallback matrix reuse for exact-card report adaptation; exact cards now publish deterministic per-card context instead of stale matrix state.
+- Fixed analyze-route placeholder smoke tests to assert robustly with accessible-name/multi-match-safe queries.
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.3.0 - 2026-03-02
 ### Added
 - Stream A: Added modular shell routing contracts (`FeatureRoute`, `ToolDescriptor`, `ResultAction`) and registry-driven top navigation with Library as a visible fourth primary destination.

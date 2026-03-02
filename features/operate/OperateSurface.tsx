@@ -35,6 +35,7 @@ interface OperateSurfaceProps {
     resolveMatrixByKey: (key: string) => Matrix | null;
     onUseMatrix: (matrix: ValidMatrix) => void;
     onSaveMatrix: (matrix: ValidMatrix, preferredName: string) => void;
+    onResultsChange?: (results: ExactSurfaceResult[]) => void;
     onError?: (message: string) => void;
 }
 
@@ -84,6 +85,7 @@ export const OperateSurface: React.FC<OperateSurfaceProps> = ({
     resolveMatrixByKey,
     onUseMatrix,
     onSaveMatrix,
+    onResultsChange,
     onError,
 }) => {
     const [uEntries, setUEntries] = React.useState<string[]>(createStringVector(3));
@@ -114,6 +116,10 @@ export const OperateSurface: React.FC<OperateSurfaceProps> = ({
         },
         [onError, onSaveMatrix, onUseMatrix]
     );
+
+    React.useEffect(() => {
+        onResultsChange?.(surfaceResults);
+    }, [onResultsChange, surfaceResults]);
 
     const handleLoadMatrixSource = () => {
         const source = resolveMatrixByKey(matrixSource);

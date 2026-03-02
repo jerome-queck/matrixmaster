@@ -73,6 +73,12 @@ const renderMatrixSteps = (steps: MatrixOperationsResult['steps'], includeMatric
     </div>
 );
 
+const isAnalysisResult = (result: AnyResult): result is MatrixAnalysisResult =>
+    'kind' in result && result.kind === 'analysis';
+
+const isMatrixOperationsResult = (result: AnyResult): result is MatrixOperationsResult =>
+    'finalResult' in result;
+
 export const ReportView: React.FC<ReportViewProps> = ({
     title = 'Matrix Master Report',
     results,
@@ -84,11 +90,16 @@ export const ReportView: React.FC<ReportViewProps> = ({
     reportOptions
 }) => {
     if (!results) return null;
+    const resolvedMode: AppMode = isAnalysisResult(results)
+        ? 'analysis'
+        : isMatrixOperationsResult(results)
+            ? 'matrixOperations'
+            : appMode;
 
     const toc: string[] = ['Summary'];
-    if (appMode === 'analysis') {
+    if (resolvedMode === 'analysis') {
         toc.push('Input Matrix', 'Analysis');
-    } else if (appMode === 'matrixOperations') {
+    } else if (resolvedMode === 'matrixOperations') {
         toc.push('Operation Result');
         if (reportOptions.includeSteps) toc.push('Operation Steps');
     } else {
@@ -102,7 +113,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 <div className="report-cover page-break">
                     <h1>{title}</h1>
                     <p>{new Date().toLocaleString()}</p>
-                    <p className="report-subtitle">{appMode === 'analysis' ? 'Matrix Analysis' : 'Linear Algebra Report'}</p>
+                    <p className="report-subtitle">{resolvedMode === 'analysis' ? 'Matrix Analysis' : 'Linear Algebra Report'}</p>
                 </div>
             )}
 
@@ -123,7 +134,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 )}
 
                 <Section title="Summary">
-                    {appMode === 'analysis' && (results as MatrixAnalysisResult) && (
+                    {resolvedMode === 'analysis' && (results as MatrixAnalysisResult) && (
                         <div className="report-summary">
                             <p>Rank: {(results as MatrixAnalysisResult).rank}</p>
                             {(results as MatrixAnalysisResult).trace !== undefined && (
@@ -136,25 +147,25 @@ export const ReportView: React.FC<ReportViewProps> = ({
                             )}
                         </div>
                     )}
-                    {appMode === 'matrixOperations' && (
+                    {resolvedMode === 'matrixOperations' && (
                         <div className="report-summary">
                             <p>Operation completed. Final result below.</p>
                         </div>
                     )}
-                    {appMode === 'systemSolver' && (
+                    {resolvedMode === 'systemSolver' && (
                         <div className="report-summary">
                             <p>System type: {(results as CalculationResult).systemType}</p>
                         </div>
                     )}
                 </Section>
 
-                {appMode === 'analysis' && analysisMatrix && (
+                {resolvedMode === 'analysis' && analysisMatrix && (
                     <Section title="Input Matrix">
                         <LatexBlock latex={formatMatrixToLatex(analysisMatrix)} />
                     </Section>
                 )}
 
-                {appMode === 'analysis' && (
+                {resolvedMode === 'analysis' && (
                     <Section title="Analysis">
                         {(() => {
                             const res = results as MatrixAnalysisResult;
@@ -209,31 +220,31 @@ export const ReportView: React.FC<ReportViewProps> = ({
                     </Section>
                 )}
 
-                {appMode === 'matrixOperations' && (
+                {resolvedMode === 'matrixOperations' && (
                     <Section title="Operation Result">
                         <LatexBlock latex={formatMatrixToLatex((results as MatrixOperationsResult).finalResult)} />
                     </Section>
                 )}
 
-                {appMode === 'matrixOperations' && reportOptions.includeSteps && (
+                {resolvedMode === 'matrixOperations' && reportOptions.includeSteps && (
                     <Section title="Operation Steps">
                         {renderMatrixSteps((results as MatrixOperationsResult).steps, reportOptions.includeDetails, reportOptions.includeTutorNotes)}
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && originalMatrix && (
+                {resolvedMode === 'systemSolver' && originalMatrix && (
                     <Section title="Input Matrix">
                         <LatexBlock latex={formatMatrixToLatex(originalMatrix)} />
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && (results as CalculationResult).determinant && (
+                {resolvedMode === 'systemSolver' && (results as CalculationResult).determinant && (
                     <Section title="Determinant">
                         <LatexBlock latex={`\\det(A) = ${formatSymbolicFractionToLatex((results as CalculationResult).determinant!.value)}`} />
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && (results as CalculationResult).inverse && (
+                {resolvedMode === 'systemSolver' && (results as CalculationResult).inverse && (
                     <Section title="Matrix Inverse">
                         {(results as CalculationResult).inverse?.inverseMatrix
                             ? <LatexBlock latex={formatMatrixToLatex((results as CalculationResult).inverse!.inverseMatrix!)} />
@@ -241,7 +252,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && (
+                {resolvedMode === 'systemSolver' && (
                     <Section title="Row/Column/Null Space">
                         {(results as CalculationResult).rowSpaceBasis && (
                             <LatexBlock latex={`Row(A) = \\text{span}\\{${formatVectorsToLatex((results as CalculationResult).rowSpaceBasis!)}\\}`} />
@@ -255,13 +266,13 @@ export const ReportView: React.FC<ReportViewProps> = ({
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && reportOptions.includeSteps && (
+                {resolvedMode === 'systemSolver' && reportOptions.includeSteps && (
                     <Section title="Row Reduction Steps">
                         {renderRowSteps((results as CalculationResult).gaussJordanSteps, (results as CalculationResult).systemType, reportOptions.includeDetails, reportOptions.includeTutorNotes)}
                     </Section>
                 )}
 
-                {appMode === 'systemSolver' && reportOptions.includeAssumptions && (results as CalculationResult).conditions.length > 0 && (
+                {resolvedMode === 'systemSolver' && reportOptions.includeAssumptions && (results as CalculationResult).conditions.length > 0 && (
                     <Section title="Assumptions Made During Calculation">
                         {renderConditions((results as CalculationResult).conditions.map(cond => formatSymbolicFractionToLatex(cond)))}
                     </Section>

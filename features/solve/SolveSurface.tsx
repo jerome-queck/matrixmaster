@@ -23,6 +23,7 @@ interface SolveSurfaceProps {
     resolveMatrixByKey: (key: string) => Matrix | null;
     onUseMatrix: (matrix: ValidMatrix) => void;
     onSaveMatrix: (matrix: ValidMatrix, preferredName: string) => void;
+    onResultsChange?: (results: ExactSurfaceResult[]) => void;
     onError?: (message: string) => void;
 }
 
@@ -85,6 +86,7 @@ export const SolveSurface: React.FC<SolveSurfaceProps> = ({
     resolveMatrixByKey,
     onUseMatrix,
     onSaveMatrix,
+    onResultsChange,
     onError,
 }) => {
     const [systemType, setSystemType] = React.useState<SystemType>('non-homogeneous');
@@ -107,6 +109,10 @@ export const SolveSurface: React.FC<SolveSurfaceProps> = ({
         },
         [onError, onSaveMatrix, onUseMatrix]
     );
+
+    React.useEffect(() => {
+        onResultsChange?.(results);
+    }, [onResultsChange, results]);
 
     const loadMatrixSource = () => {
         const source = resolveMatrixByKey(matrixSource);

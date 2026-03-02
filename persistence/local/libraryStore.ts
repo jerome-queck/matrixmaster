@@ -37,6 +37,13 @@ export interface SaveLibraryStoreOptions {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const setItemOrThrow = (storage: StorageLike, key: string, value: string): void => {
+    const result = (storage as { setItem: (storageKey: string, storageValue: string) => unknown }).setItem(key, value);
+    if (result === false) {
+        throw new Error('Storage write failed.');
+    }
+};
+
 export const libraryStoreKey = (profileId: string): string => `matrix-master:${profileId}:library-v2`;
 export const legacyLibraryStoreKey = (profileId: string): string => `matrix-master:${profileId}:library`;
 
@@ -140,9 +147,16 @@ export const saveLibraryStore = (
     const persisted = toPersistedStore(normalizedCatalog, now);
     const nextValue = JSON.stringify(persisted);
     const key = libraryStoreKey(profileId);
+    const strictStorage: StorageLike = {
+        getItem: storage.getItem.bind(storage),
+        setItem: (storageKey, storageValue) => {
+            setItemOrThrow(storage, storageKey, storageValue);
+        },
+        removeItem: storage.removeItem.bind(storage)
+    };
 
     const writeResult = writeTextWithRecovery({
-        storage,
+        storage: strictStorage,
         targetKey: key,
         nextValue,
         reason: 'library-overwrite',
@@ -164,7 +178,7 @@ export const saveLibraryStore = (
     if (mirrorLegacy) {
         const legacyPayload = JSON.stringify(exportMatrixLibraryForLegacy(normalizedCatalog));
         try {
-            storage.setItem(legacyLibraryStoreKey(profileId), legacyPayload);
+            setItemOrThrow(storage, legacyLibraryStoreKey(profileId), legacyPayload);
             mirroredLegacy = true;
         } catch {
             mirroredLegacy = false;
