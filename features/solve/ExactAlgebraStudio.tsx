@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Matrix, ValidMatrix } from '../../types';
+import type { ExactSurfaceResult } from '../../engines/exact/contracts';
 import OperateSurface from '../operate/OperateSurface';
 import SpacesSurface from '../spaces/SpacesSurface';
 import MapsSurface from '../maps/MapsSurface';
@@ -14,6 +15,7 @@ interface ExactAlgebraStudioProps {
     resolveMatrixByKey: (key: string) => Matrix | null;
     onUseMatrix: (matrix: ValidMatrix) => void;
     onSaveMatrix: (matrix: ValidMatrix, preferredName: string) => void;
+    onSurfaceResultsChange?: (surface: ExactStudioTab, results: ExactSurfaceResult[]) => void;
     onError?: (message: string) => void;
 }
 
@@ -29,6 +31,7 @@ export const ExactAlgebraStudio: React.FC<ExactAlgebraStudioProps> = ({
     resolveMatrixByKey,
     onUseMatrix,
     onSaveMatrix,
+    onSurfaceResultsChange,
     onError,
 }) => {
     const [activeTab, setActiveTab] = React.useState<ExactStudioTab>('solve');
@@ -60,6 +63,7 @@ export const ExactAlgebraStudio: React.FC<ExactAlgebraStudioProps> = ({
                     resolveMatrixByKey={resolveMatrixByKey}
                     onUseMatrix={onUseMatrix}
                     onSaveMatrix={onSaveMatrix}
+                    onResultsChange={(results) => onSurfaceResultsChange?.('solve', results)}
                     onError={onError}
                 />
             )}
@@ -70,6 +74,7 @@ export const ExactAlgebraStudio: React.FC<ExactAlgebraStudioProps> = ({
                     resolveMatrixByKey={resolveMatrixByKey}
                     onUseMatrix={onUseMatrix}
                     onSaveMatrix={onSaveMatrix}
+                    onResultsChange={(results) => onSurfaceResultsChange?.('operate', results)}
                     onError={onError}
                 />
             )}
@@ -80,6 +85,7 @@ export const ExactAlgebraStudio: React.FC<ExactAlgebraStudioProps> = ({
                     resolveMatrixByKey={resolveMatrixByKey}
                     onUseMatrix={onUseMatrix}
                     onSaveMatrix={onSaveMatrix}
+                    onResultsChange={(results) => onSurfaceResultsChange?.('spaces', results)}
                     onError={onError}
                 />
             )}
@@ -88,6 +94,7 @@ export const ExactAlgebraStudio: React.FC<ExactAlgebraStudioProps> = ({
                 <MapsSurface
                     onUseMatrix={onUseMatrix}
                     onSaveMatrix={onSaveMatrix}
+                    onResultsChange={(results) => onSurfaceResultsChange?.('maps', results)}
                     onError={onError}
                 />
             )}

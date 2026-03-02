@@ -31,6 +31,7 @@ import {
 interface MapsSurfaceProps {
     onUseMatrix: (matrix: ValidMatrix) => void;
     onSaveMatrix: (matrix: ValidMatrix, preferredName: string) => void;
+    onResultsChange?: (results: ExactSurfaceResult[]) => void;
     onError?: (message: string) => void;
 }
 
@@ -76,7 +77,7 @@ const ResultCard: React.FC<{
     </div>
 );
 
-export const MapsSurface: React.FC<MapsSurfaceProps> = ({ onUseMatrix, onSaveMatrix, onError }) => {
+export const MapsSurface: React.FC<MapsSurfaceProps> = ({ onUseMatrix, onSaveMatrix, onResultsChange, onError }) => {
     const [definitionMode, setDefinitionMode] = React.useState<'matrix' | 'basisImages'>('matrix');
 
     const [mapMatrixInput, setMapMatrixInput] = React.useState<string[][]>(identityStringMatrix(2));
@@ -110,6 +111,10 @@ export const MapsSurface: React.FC<MapsSurfaceProps> = ({ onUseMatrix, onSaveMat
         },
         [onError, onSaveMatrix, onUseMatrix]
     );
+
+    React.useEffect(() => {
+        onResultsChange?.(surfaceResults);
+    }, [onResultsChange, surfaceResults]);
 
     const runMapWorkflow = () => {
         try {

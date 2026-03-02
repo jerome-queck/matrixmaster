@@ -9,82 +9,151 @@ import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
 import { VirtualizedList } from './components/VirtualizedList';
 import ExactAlgebraStudio from './features/solve/ExactAlgebraStudio';
-import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, normalizeExpression, validateExpression, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
+import AnalyzeDiscoveryPanel from './features/analyze/AnalyzeDiscoveryPanel';
+import { ANALYZE_DISCOVERY_ENTRIES } from './features/analyze/registry';
+import { ADVANCED_TOOL_ROUTES } from './features/advanced/registry';
+import {
+    adaptDecompositionSurfaceToSharedResult,
+    adaptExactSurfaceResultsToSharedResult,
+    adaptInputRequiredRoutePlaceholderToSharedResult,
+    adaptIterativeSurfaceToSharedResult,
+    adaptLeastSquaresSurfaceToSharedResult,
+    adaptMatrixSurfaceToSharedResult,
+    adaptOrthogonalityBasisToSharedResult
+} from './features/advanced/reportAdapter';
+import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, normalizeExpression, validateExpression, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, numericQR, numericSVD, numericEigen, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
 import { copyToClipboard } from './services/clipboardService';
 import { createSafeStorage, safeJsonParse } from './services/storageService';
-import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep, UiSurface } from './types';
+import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRuleResult, ValidMatrix, AppMode, MatrixOperationsResult, AnalysisMode, SharedState, SavedMatrix, OperationNode, NumberFormatOptions, VariableAssumption, MatrixRecipe, WorkspaceProfile, ReportOptions, AnyResult, DeterminantResult, InverseResult, MatrixAnalysisResult, ExercisePack, Plugin, ProjectVersion, SimplifyTraceStep, UiSurface, LibraryObjectKind } from './types';
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
 import { useDelayedFlag } from './hooks/useDelayedFlag';
+import { runGramSchmidtWorkflow, solveLeastSquaresWorkflow } from './engines/numeric/orthogonality';
 import TopNavigation from './app/shell/TopNavigation';
 import MoreMenu from './app/shell/MoreMenu';
 import CommandPalette from './app/shell/CommandPalette';
 import ResultShell from './app/shell/ResultShell';
+import type { LibraryCatalog, LibraryItem } from './features/library/contracts';
+import { migrateSavedMatricesToCatalog, savedMatrixToLibraryItem } from './features/library/compat';
+import { createEmptyLibraryCatalog, ensureLibraryFolder, folderNameById, markLibraryItemOpened, normalizeLibraryCatalog, removeLibraryItem, setLibraryItemFavorite, upsertLibraryItem } from './features/library/state';
+import { exportMatrixLibraryForLegacy, loadLibraryStore, saveLibraryStore } from './persistence/local';
+import { decodeMMatrixWorkspace, encodeLegacyCompatibleMMatrix, encodeMMatrixWorkspace, MMATRIX_CURRENT_SCHEMA_VERSION } from './persistence/workspace';
+import type { MMatrixWorkspaceV3 } from './persistence/workspace';
 import { CORE_PRIMARY_ROUTES } from './app/routes/coreRoutes';
+import { bootstrapFeatureRoutes } from './app/routes/featureRouteBootstrap';
 import { getRegisteredFeatureRoutes } from './app/routes/extensions';
 import { buildRouteRegistry, getPrimaryRoutes } from './app/registry/routeRegistry';
 import type { PrimaryRouteId, ToolDescriptor, ResultAction } from './app/registry/contracts';
 
 type AllResultTypes = AnyResult;
 
-type LibraryItemProps = {
-    item: SavedMatrix;
-    onDelete: (id: string) => void;
-    onLoad: (item: SavedMatrix) => void;
+bootstrapFeatureRoutes();
+
+const LIBRARY_KIND_ORDER: LibraryObjectKind[] = ['matrix', 'vector', 'vectorSet', 'basis', 'linearMap', 'workspace'];
+const LIBRARY_KIND_LABELS: Record<LibraryObjectKind, string> = {
+    matrix: 'Matrix',
+    vector: 'Vector',
+    vectorSet: 'Vector Set',
+    basis: 'Basis',
+    linearMap: 'Linear Map',
+    workspace: 'Workspace'
 };
 
-const LibraryListItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onLoad }) => (
+type CatalogLibraryUiItem = {
+    id: string;
+    name: string;
+    kind: LibraryObjectKind;
+    folderName: string;
+    tags: string[];
+    favorite: boolean;
+    summary: string;
+    previewRows: (string | null)[][];
+    showEllipsis: boolean;
+    loadable: boolean;
+    sourceItem: LibraryItem;
+};
+
+type LibraryItemProps = {
+    item: CatalogLibraryUiItem;
+    onDelete: (id: string) => void;
+    onOpen: (item: LibraryItem) => void;
+    onToggleFavorite: (id: string) => void;
+};
+
+const LibraryListItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onOpen, onToggleFavorite }) => (
     <div className="flex items-center justify-between p-3 glass-input/50 rounded-lg">
-        <div>
-            <h4 className="font-semibold text-ink">{item.name}</h4>
-            <p className="text-xs text-secondary">{item.rows}x{item.cols} • {(item.folder || 'Unsorted')}</p>
-            {item.tags && item.tags.length > 0 && (
+        <div className="min-w-0">
+            <h4 className="font-semibold text-ink truncate">{item.name}</h4>
+            <p className="text-xs text-secondary">
+                {LIBRARY_KIND_LABELS[item.kind]} • {item.summary} • {item.folderName}
+            </p>
+            {item.tags.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
                     {item.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}
                 </div>
             )}
         </div>
         <div className="flex items-center gap-2">
+            <button
+                onClick={() => onToggleFavorite(item.id)}
+                className={`px-2 py-1 rounded-lg text-xs ${item.favorite ? 'bg-amber-100 text-amber-700' : 'glass-btn'}`}
+                aria-label={item.favorite ? `Unfavorite ${item.name}` : `Favorite ${item.name}`}
+            >
+                {item.favorite ? '★' : '☆'}
+            </button>
             <button onClick={() => onDelete(item.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${item.name}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
             </button>
-            <button onClick={() => onLoad(item)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">Load</button>
+            <button onClick={() => onOpen(item.sourceItem)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-sm hover:opacity-90">
+                {item.loadable ? 'Load' : 'Open'}
+            </button>
         </div>
     </div>
 ));
 
-const LibraryCardItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onLoad }) => {
-    const previewRows = React.useMemo(() => item.matrix?.slice(0, 2) ?? [], [item.matrix]);
-    const showEllipsis = item.rows > 2;
-    return (
-        <div className="p-3 rounded-xl glass-input/50 border border-slate-200 dark:border-slate-600 flex flex-col gap-3">
-            <div>
-                <h4 className="font-semibold text-ink">{item.name}</h4>
-                <p className="text-xs text-secondary">{item.rows}x{item.cols} • {(item.folder || 'Unsorted')}</p>
-            </div>
-            <div className="text-[11px] text-secondary bg-white/60 rounded-lg px-2 py-2 font-mono overflow-x-auto">
-                {previewRows.map((row, idx) => (
+const LibraryCardItem: React.FC<LibraryItemProps> = React.memo(({ item, onDelete, onOpen, onToggleFavorite }) => (
+    <div className="p-3 rounded-xl glass-input/50 border border-slate-200 dark:border-slate-600 flex flex-col gap-3">
+        <div>
+            <h4 className="font-semibold text-ink">{item.name}</h4>
+            <p className="text-xs text-secondary">{LIBRARY_KIND_LABELS[item.kind]} • {item.summary}</p>
+            <p className="text-[11px] text-secondary">{item.folderName}</p>
+        </div>
+        <div className="text-[11px] text-secondary bg-white/60 rounded-lg px-2 py-2 font-mono overflow-x-auto min-h-[52px]">
+            {item.previewRows.length > 0 ? (
+                item.previewRows.map((row, idx) => (
                     <div key={idx} className="whitespace-nowrap">
                         {row.map(cell => (cell ?? '•')).join('  ')}
                     </div>
-                ))}
-                {showEllipsis && <div className="text-secondary">…</div>}
-            </div>
-            {item.tags && item.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {item.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}
-                </div>
+                ))
+            ) : (
+                <div className="text-secondary">{item.summary}</div>
             )}
-            <div className="flex items-center justify-between">
-                <button onClick={() => onDelete(item.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
-                <button onClick={() => onLoad(item)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-xs hover:opacity-90">Load</button>
-            </div>
+            {item.showEllipsis && <div className="text-secondary">…</div>}
         </div>
-    );
-});
+        {item.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+                {item.tags.map(tag => <span key={tag} className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>)}
+            </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex gap-2">
+                <button
+                    onClick={() => onToggleFavorite(item.id)}
+                    className={`text-xs px-2 py-1 rounded ${item.favorite ? 'bg-amber-100 text-amber-700' : 'glass-btn'}`}
+                >
+                    {item.favorite ? '★ Favorite' : '☆ Favorite'}
+                </button>
+                <button onClick={() => onDelete(item.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
+            </div>
+            <button onClick={() => onOpen(item.sourceItem)} style={{ backgroundColor: 'var(--button-bg)' }} className="py-1 px-3 rounded-lg text-white text-xs hover:opacity-90">
+                {item.loadable ? 'Load' : 'Open'}
+            </button>
+        </div>
+    </div>
+));
 
 const defaultMatrix = (rows: number, cols: number): Matrix => Array(rows).fill(null).map(() => Array(cols).fill(null));
 
@@ -364,7 +433,7 @@ const App: React.FC = () => {
     });
     
     // --- New UI/UX State ---
-    const [library, setLibrary] = useState<SavedMatrix[]>([]);
+    const [libraryCatalog, setLibraryCatalog] = useState<LibraryCatalog>(() => createEmptyLibraryCatalog());
     const [isSaveModalOpen, setSaveModalOpen] = useState(false);
     const [matrixToSave, setMatrixToSave] = useState<{matrix: Matrix, rows: number, cols: number} | null>(null);
     const [isLoadModalOpen, setLoadModalOpen] = useState(false);
@@ -383,6 +452,10 @@ const App: React.FC = () => {
     const [importMatrixKey, setImportMatrixKey] = useState('solver');
     const [librarySearch, setLibrarySearch] = useState('');
     const [libraryFolderFilter, setLibraryFolderFilter] = useState('all');
+    const [libraryKindFilter, setLibraryKindFilter] = useState<LibraryObjectKind | 'all'>('all');
+    const [libraryFavoritesOnly, setLibraryFavoritesOnly] = useState(false);
+    const [libraryShowRecents, setLibraryShowRecents] = useState(true);
+    const [libraryShowHistory, setLibraryShowHistory] = useState(false);
     const [libraryView, setLibraryView] = useState<'list' | 'grid'>('grid');
     const [compareLeftKey, setCompareLeftKey] = useState('solver');
     const [compareRightKey, setCompareRightKey] = useState('analysis');
@@ -475,6 +548,8 @@ const App: React.FC = () => {
     const [versionName, setVersionName] = useState('');
     const [isStepCompareOpen, setStepCompareOpen] = useState(false);
     const [stepCompareResult, setStepCompareResult] = useState<string | null>(null);
+
+    const legacyLibrary = useMemo(() => exportMatrixLibraryForLegacy(libraryCatalog), [libraryCatalog]);
 
     const logDiagnostic = useCallback((message: string, data?: unknown) => {
         if (!isDesktop) return;
@@ -594,8 +669,15 @@ const App: React.FC = () => {
         const savedCustomColors = getItem('customTheme');
         setCustomThemeColors(savedCustomColors ? safeJsonParse(savedCustomColors, defaultCustomColors) : defaultCustomColors);
 
-        const savedLibrary = getItem('library');
-        setLibrary(savedLibrary ? safeJsonParse(savedLibrary, [], Array.isArray) : []);
+        const loadedLibraryStore = loadLibraryStore(storage, profileId);
+        const normalizedCatalog = normalizeLibraryCatalog(loadedLibraryStore.catalog);
+        setLibraryCatalog(normalizedCatalog);
+        if (loadedLibraryStore.source !== 'v2' || loadedLibraryStore.migrated) {
+            const migrationSave = saveLibraryStore(storage, profileId, normalizedCatalog, { mirrorLegacy: true });
+            if (!migrationSave.ok) {
+                logDiagnostic('library-store-migration-save-failed', migrationSave);
+            }
+        }
 
         const savedHistory = getItem('history');
         const parsedHistory = savedHistory ? safeJsonParse(savedHistory, [], Array.isArray) : [];
@@ -859,10 +941,12 @@ const App: React.FC = () => {
     }, [autoSnapshotOnCalculate, activeProfile, profileLoaded]);
 
     useEffect(() => {
-        // Save library to local storage on change
         if (!profileLoaded) return;
-        storage.setItem(profileStorageKey(activeProfile, 'library'), JSON.stringify(library));
-    }, [library, activeProfile, profileLoaded]);
+        const result = saveLibraryStore(storage, activeProfile, libraryCatalog, { mirrorLegacy: true });
+        if (!result.ok) {
+            logDiagnostic('library-store-save-failed', result);
+        }
+    }, [libraryCatalog, activeProfile, profileLoaded, storage, logDiagnostic]);
 
     useEffect(() => {
         if (!profileLoaded) return;
@@ -984,7 +1068,7 @@ const App: React.FC = () => {
         batchRunning,
         handleRunBatch
     } = useBatchRunner({
-        library,
+        library: legacyLibrary,
         analysisMode,
         analysisOptions,
         extractMatrixNames,
@@ -1010,22 +1094,164 @@ const App: React.FC = () => {
     const expressionValidation = useMemo(() => validateExpression(expression, validationMatrixDefs), [expression, validationMatrixDefs]);
 
     const deferredLibrarySearch = useDeferredValue(librarySearch);
+    const catalogLibraryItems = useMemo<CatalogLibraryUiItem[]>(() => {
+        return libraryCatalog.items
+            .map(item => {
+                const folderName = folderNameById(libraryCatalog, item.folderId) || 'Unsorted';
+                if (item.object.kind === 'matrix') {
+                    const matrixObject = item.object;
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        kind: item.kind,
+                        folderName,
+                        tags: item.tags,
+                        favorite: item.favorite,
+                        summary: `${matrixObject.rows}x${matrixObject.cols}`,
+                        previewRows: matrixObject.values.slice(0, 2),
+                        showEllipsis: matrixObject.rows > 2,
+                        loadable: true,
+                        sourceItem: item
+                    };
+                }
+                if (item.object.kind === 'vector') {
+                    const vectorObject = item.object;
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        kind: item.kind,
+                        folderName,
+                        tags: item.tags,
+                        favorite: item.favorite,
+                        summary: `${vectorObject.dimension}D ${vectorObject.orientation} vector`,
+                        previewRows: [vectorObject.values.slice(0, 6)],
+                        showEllipsis: vectorObject.values.length > 6,
+                        loadable: true,
+                        sourceItem: item
+                    };
+                }
+                if (item.object.kind === 'vectorSet') {
+                    const vectorSetObject = item.object;
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        kind: item.kind,
+                        folderName,
+                        tags: item.tags,
+                        favorite: item.favorite,
+                        summary: `${vectorSetObject.vectors.length} vectors in R^${vectorSetObject.dimension}`,
+                        previewRows: vectorSetObject.vectors.slice(0, 2),
+                        showEllipsis: vectorSetObject.vectors.length > 2,
+                        loadable: true,
+                        sourceItem: item
+                    };
+                }
+                if (item.object.kind === 'basis') {
+                    const basisObject = item.object;
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        kind: item.kind,
+                        folderName,
+                        tags: item.tags,
+                        favorite: item.favorite,
+                        summary: `Basis in R^${basisObject.dimension} (${basisObject.vectors.length} vectors)`,
+                        previewRows: basisObject.vectors.slice(0, 2),
+                        showEllipsis: basisObject.vectors.length > 2,
+                        loadable: true,
+                        sourceItem: item
+                    };
+                }
+                if (item.object.kind === 'linearMap') {
+                    const mapObject = item.object;
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        kind: item.kind,
+                        folderName,
+                        tags: item.tags,
+                        favorite: item.favorite,
+                        summary: `${mapObject.domainDimension}→${mapObject.codomainDimension} map`,
+                        previewRows: mapObject.matrix.slice(0, 2),
+                        showEllipsis: mapObject.matrix.length > 2,
+                        loadable: true,
+                        sourceItem: item
+                    };
+                }
+                return {
+                    id: item.id,
+                    name: item.name,
+                    kind: item.kind,
+                    folderName,
+                    tags: item.tags,
+                    favorite: item.favorite,
+                    summary: 'Workspace snapshot',
+                    previewRows: [],
+                    showEllipsis: false,
+                    loadable: false,
+                    sourceItem: item
+                };
+            })
+            .sort((a, b) => b.sourceItem.updatedAt - a.sourceItem.updatedAt || a.name.localeCompare(b.name));
+    }, [libraryCatalog]);
+
+    const catalogLibraryItemById = useMemo(() => {
+        return new Map(catalogLibraryItems.map(item => [item.id, item]));
+    }, [catalogLibraryItems]);
+
     const filteredLibrary = useMemo(() => {
         const search = deferredLibrarySearch.trim().toLowerCase();
-        return library.filter(item => {
-            const matchesFolder = libraryFolderFilter === 'all' || (item.folder || 'Unsorted') === libraryFolderFilter;
+        return catalogLibraryItems.filter(item => {
+            const matchesFolder = libraryFolderFilter === 'all' || item.folderName === libraryFolderFilter;
             if (!matchesFolder) return false;
+            const matchesKind = libraryKindFilter === 'all' || item.kind === libraryKindFilter;
+            if (!matchesKind) return false;
+            const matchesFavorite = !libraryFavoritesOnly || item.favorite;
+            if (!matchesFavorite) return false;
             if (!search) return true;
-            const tagMatch = item.tags?.some(tag => tag.toLowerCase().includes(search)) ?? false;
-            return item.name.toLowerCase().includes(search) || (item.folder || '').toLowerCase().includes(search) || tagMatch;
+            const tagMatch = item.tags.some(tag => tag.toLowerCase().includes(search));
+            const kindMatch = LIBRARY_KIND_LABELS[item.kind].toLowerCase().includes(search);
+            return item.name.toLowerCase().includes(search) || item.folderName.toLowerCase().includes(search) || item.summary.toLowerCase().includes(search) || kindMatch || tagMatch;
         });
-    }, [library, deferredLibrarySearch, libraryFolderFilter]);
+    }, [catalogLibraryItems, deferredLibrarySearch, libraryFavoritesOnly, libraryFolderFilter, libraryKindFilter]);
 
     const libraryFolders = useMemo(() => {
         const folders = new Set<string>();
-        library.forEach(item => folders.add(item.folder || 'Unsorted'));
+        catalogLibraryItems.forEach(item => folders.add(item.folderName));
         return Array.from(folders.values()).sort();
-    }, [library]);
+    }, [catalogLibraryItems]);
+
+    const libraryKindCounts = useMemo(() => {
+        const counts: Record<LibraryObjectKind, number> = {
+            matrix: 0,
+            vector: 0,
+            vectorSet: 0,
+            basis: 0,
+            linearMap: 0,
+            workspace: 0
+        };
+        catalogLibraryItems.forEach(item => {
+            counts[item.kind] += 1;
+        });
+        return counts;
+    }, [catalogLibraryItems]);
+
+    const libraryRecents = useMemo(() => {
+        return libraryCatalog.recents
+            .map(entry => ({ entry, item: catalogLibraryItemById.get(entry.itemId) }))
+            .filter((entry): entry is { entry: { itemId: string; openedAt: number }; item: CatalogLibraryUiItem } => Boolean(entry.item))
+            .slice(0, 12);
+    }, [libraryCatalog.recents, catalogLibraryItemById]);
+
+    const libraryHistoryEntries = useMemo(() => {
+        return libraryCatalog.history
+            .slice(-24)
+            .reverse()
+            .map(entry => ({
+                entry,
+                item: entry.itemId ? catalogLibraryItemById.get(entry.itemId) : undefined
+            }));
+    }, [libraryCatalog.history, catalogLibraryItemById]);
 
     const routeRegistry = useMemo(() => {
         return buildRouteRegistry({
@@ -1268,6 +1494,11 @@ const App: React.FC = () => {
             else result = numericMatrixSqrt(numeric);
             setMatrixFuncResult(result);
             setMatrixFuncError(null);
+            publishAdaptedSurfaceResult(
+                adaptMatrixSurfaceToSharedResult(`Matrix function ${matrixFuncType}(A)`, result, [
+                    { label: 'Input matrix A', matrix: numeric }
+                ])
+            );
         } catch (e) {
             setMatrixFuncResult(null);
             setMatrixFuncError(e instanceof Error ? e.message : 'Failed to compute matrix function.');
@@ -1281,6 +1512,12 @@ const App: React.FC = () => {
             const numeric = toNumericMatrix(matrix as ValidMatrix);
             const result = numericJordanForm(numeric);
             setJordanResult(result);
+            publishAdaptedSurfaceResult(
+                adaptMatrixSurfaceToSharedResult('Jordan form', result.J, [
+                    { label: 'Input matrix A', matrix: numeric },
+                    { label: 'Similarity basis P', matrix: result.P }
+                ])
+            );
         } catch (e) {
             setJordanResult(null);
             setError(e instanceof Error ? e.message : 'Failed to compute Jordan form.');
@@ -1341,9 +1578,160 @@ const App: React.FC = () => {
             else result = numericGMRES(A, b2, iterativeTol, iterativeMaxIter);
             setIterativeResult(result);
             setIterativeError(null);
+            publishAdaptedSurfaceResult(adaptIterativeSurfaceToSharedResult(iterativeMethod, result.x, result.residuals));
         } catch (e) {
             setIterativeResult(null);
             setIterativeError(e instanceof Error ? e.message : 'Iterative solver failed.');
+        }
+    };
+
+    const vectorSetToColumnMatrix = (vectors: number[][]): number[][] => {
+        if (vectors.length === 0) return [];
+        const dimension = vectors[0]?.length ?? 0;
+        return Array.from({ length: dimension }, (_, row) =>
+            vectors.map((vector) => vector[row] ?? 0)
+        );
+    };
+
+    const resolveDecompositionRouteSource = () => {
+        if (!matrixHasNull(analysisMatrix)) {
+            return {
+                matrix: toNumericMatrix(analysisMatrix as ValidMatrix),
+                label: 'Analysis matrix'
+            };
+        }
+
+        if (!matrixHasNull(solverMatrix)) {
+            const solverNumeric = toNumericMatrix(solverMatrix as ValidMatrix);
+            if (systemType === 'non-homogeneous' && (solverNumeric[0]?.length ?? 0) > 1) {
+                const rhsIndex = Math.max(0, (solverNumeric[0]?.length ?? 1) - 1);
+                return {
+                    matrix: solverNumeric.map(row => row.slice(0, rhsIndex)),
+                    label: 'System solver coefficient matrix'
+                };
+            }
+            return {
+                matrix: solverNumeric,
+                label: 'System solver matrix'
+            };
+        }
+
+        return null;
+    };
+
+    const handlePublishDecompositionRouteResult = () => {
+        try {
+            const source = resolveDecompositionRouteSource();
+            if (!source) throw new Error('Provide a fully populated analysis or solver matrix first.');
+            const matrix = source.matrix;
+            const rows = matrix.length;
+            const cols = matrix[0]?.length ?? 0;
+            if (rows === 0 || cols === 0) throw new Error('Matrix must be non-empty.');
+            const isSquare = rows === cols;
+
+            let lu: { L: number[][]; U: number[][]; P: number[][] } | undefined;
+            let qr: { Q: number[][]; R: number[][] } | undefined;
+            let svd: { U: number[][]; S: number[][]; Vt: number[][] } | undefined;
+            let eigen: { values: number[]; vectors?: number[][] } | undefined;
+
+            try {
+                qr = numericQR(matrix);
+            } catch {
+                qr = undefined;
+            }
+            try {
+                svd = numericSVD(matrix);
+            } catch {
+                svd = undefined;
+            }
+
+            if (isSquare) {
+                try {
+                    const luResult = numericLU(matrix);
+                    lu = { L: luResult.L, U: luResult.U, P: luResult.P };
+                } catch {
+                    lu = undefined;
+                }
+
+                try {
+                    const eigenResult = numericEigen(matrix);
+                    eigen = { values: eigenResult.values, vectors: eigenResult.vectors };
+                } catch {
+                    eigen = undefined;
+                }
+            }
+
+            if (!lu && !qr && !svd && !eigen) {
+                throw new Error('No decomposition outputs were available for this matrix.');
+            }
+
+            publishAdaptedSurfaceResult(
+                adaptDecompositionSurfaceToSharedResult(
+                    `Decomposition overview (${source.label})`,
+                    { input: matrix, lu, qr, svd, eigen }
+                )
+            );
+        } catch (error) {
+            reportError(error instanceof Error ? error.message : 'Decomposition route execution failed.');
+        }
+    };
+
+    const handlePublishOrthogonalityRouteResult = () => {
+        try {
+            if (matrixHasNull(analysisMatrix)) throw new Error('Fill all cells in the analysis matrix first.');
+            const numeric = toNumericMatrix(analysisMatrix as ValidMatrix);
+            const columnCount = numeric[0]?.length ?? 0;
+            if (columnCount === 0) throw new Error('Select a non-empty analysis matrix.');
+            const vectors = Array.from({ length: columnCount }, (_, column) => numeric.map(row => row[column] ?? 0));
+            const workflow = runGramSchmidtWorkflow(vectors, { normalize: true });
+            const basisVectors = workflow.data.orthonormalBasis.length > 0
+                ? workflow.data.orthonormalBasis
+                : workflow.data.orthogonalBasis;
+            if (basisVectors.length === 0) throw new Error('Unable to produce a stable orthogonality basis at current tolerance.');
+            const basisMatrix = vectorSetToColumnMatrix(basisVectors);
+            publishAdaptedSurfaceResult(
+                adaptOrthogonalityBasisToSharedResult(
+                    'Orthogonality basis (Gram-Schmidt)',
+                    numeric,
+                    basisMatrix,
+                    workflow.data.dependentInputIndices
+                )
+            );
+        } catch (error) {
+            reportError(error instanceof Error ? error.message : 'Orthogonality route execution failed.');
+        }
+    };
+
+    const handlePublishLeastSquaresRouteResult = () => {
+        try {
+            let matrixA: number[][];
+            let rhs: number[];
+            let sourceLabel: string;
+
+            if (systemType === 'non-homogeneous' && !matrixHasNull(solverMatrix) && (solverMatrix[0]?.length ?? 0) > 1) {
+                const augmented = toNumericMatrix(solverMatrix as ValidMatrix);
+                const rhsColumn = Math.max(0, (augmented[0]?.length ?? 1) - 1);
+                matrixA = augmented.map(row => row.slice(0, rhsColumn));
+                rhs = augmented.map(row => row[rhsColumn] ?? 0);
+                sourceLabel = 'System solver [A|b]';
+            } else {
+                if (matrixHasNull(analysisMatrix)) throw new Error('Fill all analysis matrix cells or use a non-homogeneous solver matrix.');
+                matrixA = toNumericMatrix(analysisMatrix as ValidMatrix);
+                rhs = matrixA.map(() => 1);
+                sourceLabel = 'Analysis matrix with b=1';
+            }
+
+            const workflow = solveLeastSquaresWorkflow(matrixA, rhs);
+            publishAdaptedSurfaceResult(
+                adaptLeastSquaresSurfaceToSharedResult(
+                    `Least-squares diagnostics (${sourceLabel})`,
+                    matrixA,
+                    rhs,
+                    workflow.data
+                )
+            );
+        } catch (error) {
+            reportError(error instanceof Error ? error.message : 'Least-squares route execution failed.');
         }
     };
 
@@ -1978,7 +2366,78 @@ const App: React.FC = () => {
         }
     };
 
+    const buildWorkspaceSnapshot = (now = Date.now()): MMatrixWorkspaceV3 => ({
+        format: 'mmatrix',
+        schemaVersion: MMATRIX_CURRENT_SCHEMA_VERSION,
+        createdAt: now,
+        updatedAt: now,
+        state: buildSharedState(),
+        library: normalizeLibraryCatalog(libraryCatalog, now),
+        recipes,
+        assumptions: variableAssumptions,
+        history,
+        settings: {
+            theme,
+            density,
+            fontSize,
+            customThemeColors,
+            builderMode,
+            tutorMode,
+            autoSnapshotOnCalculate,
+            numberFormat,
+            reportOptions
+        },
+        outputs: [],
+        metadata: {
+            canonicalExtension: '.mmatrix',
+            localOnly: true
+        }
+    });
+
+    const applyImportedWorkspaceSnapshot = (snapshot: MMatrixWorkspaceV3) => {
+        const now = Date.now();
+        handleReset();
+        applySharedState(snapshot.state);
+        setLibraryCatalog(normalizeLibraryCatalog(snapshot.library, now));
+        if (Array.isArray(snapshot.recipes)) setRecipes(snapshot.recipes);
+        if (Array.isArray(snapshot.assumptions)) setVariableAssumptions(snapshot.assumptions);
+        if (Array.isArray(snapshot.history)) {
+            const trimmedHistory = (snapshot.history as HistorySnapshot[]).slice(-HISTORY_LIMIT);
+            setHistory(trimmedHistory);
+            setHistoryIndex(trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1);
+        }
+
+        const settings = snapshot.settings;
+        if (typeof settings.theme === 'string') setTheme(settings.theme);
+        if (typeof settings.density === 'string') setDensity(settings.density);
+        if (typeof settings.fontSize === 'string') setFontSize(settings.fontSize as FontSize);
+        if (settings.customThemeColors && typeof settings.customThemeColors === 'object') {
+            setCustomThemeColors(settings.customThemeColors as CustomThemeColors);
+        }
+        if (typeof settings.builderMode === 'string') setBuilderMode(settings.builderMode as BuilderMode);
+        if (settings.tutorMode !== undefined) setTutorMode(Boolean(settings.tutorMode));
+        if (settings.autoSnapshotOnCalculate !== undefined) setAutoSnapshotOnCalculate(Boolean(settings.autoSnapshotOnCalculate));
+        if (settings.numberFormat && typeof settings.numberFormat === 'object') {
+            setNumberFormat({ ...defaultNumberFormat, ...(settings.numberFormat as Partial<NumberFormatOptions>) });
+        }
+        if (settings.reportOptions && typeof settings.reportOptions === 'object') {
+            setReportOptions({ ...defaultReportOptions, ...(settings.reportOptions as Partial<ReportOptions>) });
+        }
+    };
+
     const exportStateAsJson = (asShareFile: boolean) => {
+        if (asShareFile) {
+            const snapshot = buildWorkspaceSnapshot(Date.now());
+            let payload: string;
+            try {
+                payload = encodeMMatrixWorkspace(snapshot, true);
+            } catch {
+                payload = encodeLegacyCompatibleMMatrix(snapshot, true);
+            }
+            downloadFile('matrix-master-share.mmatrix', payload, 'application/json');
+            return;
+        }
+
         const payload = {
             version: 2,
             state: buildSharedState(),
@@ -1999,8 +2458,7 @@ const App: React.FC = () => {
             }
         };
         const json = JSON.stringify(payload, null, 2);
-        const filename = asShareFile ? 'matrix-master-share.mmatrix' : 'matrix-master-state.json';
-        downloadFile(filename, json, 'application/json');
+        downloadFile('matrix-master-state.json', json, 'application/json');
     };
 
     const applyMatrixToTarget = (matrix: Matrix, target: string) => {
@@ -2082,13 +2540,41 @@ const App: React.FC = () => {
 
         try {
             const parsed = JSON.parse(text);
+            const now = Date.now();
+            const parsedRecord = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+            const shouldAttemptWorkspaceDecode = file.name.toLowerCase().endsWith('.mmatrix')
+                || Boolean(parsedRecord && (
+                    parsedRecord.format === 'mmatrix'
+                    || (
+                        'state' in parsedRecord
+                        && ('version' in parsedRecord || 'library' in parsedRecord || 'recipes' in parsedRecord || 'assumptions' in parsedRecord || 'history' in parsedRecord || 'settings' in parsedRecord)
+                    )
+                ));
+
+            if (shouldAttemptWorkspaceDecode) {
+                try {
+                    const decoded = decodeMMatrixWorkspace(parsed, now);
+                    applyImportedWorkspaceSnapshot(decoded.snapshot);
+                    decoded.warnings.forEach(warning => pushToast(warning, 'info'));
+                    return;
+                } catch {
+                    // Explicit legacy fallback below.
+                }
+            }
+
             if (parsed?.state) {
                 handleReset();
                 applySharedState(parsed.state as SharedState);
-                if (Array.isArray(parsed.library)) setLibrary(parsed.library);
+                if (Array.isArray(parsed.library)) {
+                    setLibraryCatalog(migrateSavedMatricesToCatalog(parsed.library as SavedMatrix[], now));
+                }
                 if (Array.isArray(parsed.recipes)) setRecipes(parsed.recipes);
                 if (Array.isArray(parsed.assumptions)) setVariableAssumptions(parsed.assumptions);
-                if (Array.isArray(parsed.history)) setHistory(parsed.history);
+                if (Array.isArray(parsed.history)) {
+                    const trimmedHistory = parsed.history.slice(-HISTORY_LIMIT);
+                    setHistory(trimmedHistory);
+                    setHistoryIndex(trimmedHistory.length > 0 ? trimmedHistory.length - 1 : -1);
+                }
                 if (parsed.settings) {
                     if (parsed.settings.theme) setTheme(parsed.settings.theme);
                     if (parsed.settings.density) setDensity(parsed.settings.density);
@@ -2131,6 +2617,192 @@ const App: React.FC = () => {
             handleModeChange(routeId as AppMode);
         }
     };
+
+    const publishAdaptedSurfaceResult = useCallback((result: MatrixOperationsResult) => {
+        startTransition(() => setResults(result));
+    }, []);
+
+    const publishRouteInputRequiredResult = useCallback((
+        label: string,
+        requiredInputs: string[],
+        diagnostics: string[] = []
+    ) => {
+        publishAdaptedSurfaceResult(
+            adaptInputRequiredRoutePlaceholderToSharedResult(label, requiredInputs, diagnostics)
+        );
+    }, [publishAdaptedSurfaceResult]);
+
+    const hasReadyRouteMatrix = useCallback((matrixKey: string): boolean => {
+        const matrix = resolveMatrixByKey(matrixKey);
+        return Boolean(
+            matrix
+            && matrix.length > 0
+            && (matrix[0]?.length ?? 0) > 0
+            && !matrixHasNull(matrix)
+        );
+    }, [resolveMatrixByKey]);
+
+    const canPublishOrthogonalityRouteResult = useCallback((): boolean => (
+        !matrixHasNull(analysisMatrix) && analysisMatrix.length > 0 && (analysisMatrix[0]?.length ?? 0) > 0
+    ), [analysisMatrix]);
+
+    const canPublishLeastSquaresRouteResult = useCallback((): boolean => {
+        if (systemType === 'non-homogeneous' && !matrixHasNull(solverMatrix) && (solverMatrix[0]?.length ?? 0) > 1) {
+            return true;
+        }
+
+        return !matrixHasNull(analysisMatrix) && analysisMatrix.length > 0 && (analysisMatrix[0]?.length ?? 0) > 0;
+    }, [analysisMatrix, solverMatrix, systemType]);
+
+    const openExactAlgebraStudio = useCallback(() => {
+        setAppMode('analysis');
+        setActiveRouteId('analysis');
+        setToolsOpen(false);
+        setAdvancedToolsCategory('overview');
+        setExactAlgebraOpen(true);
+    }, []);
+
+    const openAnalyzeRoute = useCallback((route: string) => {
+        setAppMode('analysis');
+        setActiveRouteId('analysis');
+        const normalizedRoute = route.toLowerCase();
+
+        if (normalizedRoute === '/analyze/exact-algebra-studio') {
+            openExactAlgebraStudio();
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/matrix-properties')
+            || normalizedRoute.startsWith('/analyze/advanced/decompositions')) {
+            if (resolveDecompositionRouteSource()) {
+                handlePublishDecompositionRouteResult();
+            } else {
+                publishRouteInputRequiredResult(
+                    'Decomposition overview',
+                    ['Fill every cell in either the Analysis matrix or the System Solver matrix.'],
+                    ['Route execution deferred until a complete matrix is available.']
+                );
+            }
+            setToolsOpen(true);
+            setAdvancedToolsCategory('math');
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/advanced/matrix-functions')) {
+            if (hasReadyRouteMatrix(matrixFuncTarget)) {
+                handleComputeMatrixFunction();
+            } else {
+                publishRouteInputRequiredResult(
+                    `Matrix function ${matrixFuncType}(A)`,
+                    ['Select a source matrix and fill all entries before opening Matrix Functions.'],
+                    [`Current source: ${matrixFuncTarget}`]
+                );
+            }
+            setToolsOpen(false);
+            setAdvancedToolsCategory('overview');
+            setMatrixFunctionsOpen(true);
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/advanced/iterative')) {
+            if (hasReadyRouteMatrix(iterativeTarget)) {
+                handleRunIterative();
+            } else {
+                publishRouteInputRequiredResult(
+                    `Iterative ${iterativeMethod.toUpperCase()} route`,
+                    ['Select a source matrix and fill all entries before opening Iterative workflows.'],
+                    [`Current source: ${iterativeTarget}`]
+                );
+            }
+            setToolsOpen(false);
+            setAdvancedToolsCategory('overview');
+            setIterativeOpen(true);
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/orthogonality/least-squares')
+            || normalizedRoute.startsWith('/analyze/advanced/orthogonality/least-squares')) {
+            if (canPublishLeastSquaresRouteResult()) {
+                handlePublishLeastSquaresRouteResult();
+            } else {
+                publishRouteInputRequiredResult(
+                    'Least-squares diagnostics',
+                    ['Provide a complete Analysis matrix, or a non-homogeneous System Solver matrix [A|b].'],
+                    ['Route execution deferred until least-squares inputs are complete.']
+                );
+            }
+            setToolsOpen(true);
+            setAdvancedToolsCategory('math');
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/orthogonality')
+            || normalizedRoute.startsWith('/analyze/advanced/orthogonality')) {
+            if (canPublishOrthogonalityRouteResult()) {
+                handlePublishOrthogonalityRouteResult();
+            } else {
+                publishRouteInputRequiredResult(
+                    'Orthogonality basis (Gram-Schmidt)',
+                    ['Fill every cell in the Analysis matrix before opening orthogonality routes.'],
+                    ['Route execution deferred until a complete analysis matrix is available.']
+                );
+            }
+            setToolsOpen(true);
+            setAdvancedToolsCategory('math');
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/advanced/canonical-forms')
+            || normalizedRoute.startsWith('/analyze/advanced/eigen-canonical')
+            || normalizedRoute.startsWith('/analyze/eigen-canonical')) {
+            setToolsOpen(false);
+            setAdvancedToolsCategory('overview');
+            setJordanOpen(true);
+            if (hasReadyRouteMatrix(jordanTarget)) {
+                handleComputeJordan();
+            } else {
+                publishRouteInputRequiredResult(
+                    'Jordan form',
+                    ['Select a source matrix and fill all entries before opening Eigen/Canonical routes.'],
+                    [`Current source: ${jordanTarget}`]
+                );
+            }
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/subspaces-bases')
+            || normalizedRoute.startsWith('/analyze/linear-maps')) {
+            openExactAlgebraStudio();
+            return;
+        }
+
+        if (normalizedRoute.startsWith('/analyze/')) {
+            setToolsOpen(true);
+            setAdvancedToolsCategory('math');
+            return;
+        }
+
+        setToolsOpen(true);
+        setAdvancedToolsCategory('overview');
+    }, [
+        canPublishLeastSquaresRouteResult,
+        canPublishOrthogonalityRouteResult,
+        handleComputeJordan,
+        handleComputeMatrixFunction,
+        handlePublishDecompositionRouteResult,
+        handlePublishLeastSquaresRouteResult,
+        handlePublishOrthogonalityRouteResult,
+        handleRunIterative,
+        hasReadyRouteMatrix,
+        iterativeMethod,
+        iterativeTarget,
+        jordanTarget,
+        matrixFuncTarget,
+        matrixFuncType,
+        openExactAlgebraStudio,
+        publishRouteInputRequiredResult,
+        resolveDecompositionRouteSource
+    ]);
 
     const toggleSection = (section: string) => {
         setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -2504,55 +3176,144 @@ const App: React.FC = () => {
     const handleSaveToLibrary = (name: string, folder: string, tagsInput: string) => {
         if (!name.trim() || !matrixToSave) return;
         const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
+        const now = Date.now();
         const newSavedMatrix: SavedMatrix = {
-            id: `m_${Date.now()}`,
+            id: `m_${now}`,
             name,
             matrix: matrixToSave.matrix.map(row => row.map(cell => stringifySymbolicFraction(cell))),
             rows: matrixToSave.rows,
             cols: matrixToSave.cols,
             tags: tags.length > 0 ? tags : undefined,
             folder: folder.trim() || undefined,
-            createdAt: Date.now()
+            createdAt: now
         };
-        setLibrary(prev => [...prev, newSavedMatrix]);
+        setLibraryCatalog(prev => {
+            let nextCatalog = prev;
+            let folderId: string | undefined;
+            if (newSavedMatrix.folder) {
+                const ensured = ensureLibraryFolder(nextCatalog, newSavedMatrix.folder, undefined, now);
+                nextCatalog = ensured.catalog;
+                folderId = ensured.folderId;
+            }
+            const item = savedMatrixToLibraryItem(newSavedMatrix, now, folderId);
+            return upsertLibraryItem(nextCatalog, { ...item, source: 'manual' }, now);
+        });
         setSaveModalOpen(false);
         setMatrixToSave(null);
     };
 
     const handleDeleteFromLibrary = useCallback((id: string) => {
-        setLibrary(prev => prev.filter(item => item.id !== id));
+        setLibraryCatalog(prev => removeLibraryItem(prev, id, Date.now()));
     }, []);
 
-    const handleLoadFromLibrary = useCallback((savedMatrix: SavedMatrix) => {
-        const parsedMatrix = savedMatrix.matrix.map(row => row.map(cell => cell === null ? null : parseInput(cell)));
+    const toMatrixFromLibraryItem = useCallback((item: LibraryItem): { matrix: Matrix; rows: number; cols: number } | null => {
+        const parseCell = (cell: string | null): SymbolicFraction | null => {
+            if (cell === null) return null;
+            const trimmed = cell.trim();
+            if (!trimmed) return null;
+            return parseInput(trimmed);
+        };
+
+        if (item.object.kind === 'matrix') {
+            const values = item.object.values.map(row => row.map(parseCell));
+            return {
+                matrix: values.length > 0 && (values[0]?.length ?? 0) > 0 ? values : [[null]],
+                rows: Math.max(1, item.object.rows),
+                cols: Math.max(1, item.object.cols)
+            };
+        }
+
+        if (item.object.kind === 'vector') {
+            const vector = item.object.values.map(parseCell);
+            if (item.object.orientation === 'row') {
+                return {
+                    matrix: [vector.length > 0 ? vector : [null]],
+                    rows: 1,
+                    cols: Math.max(1, vector.length)
+                };
+            }
+            const asColumn = vector.map(entry => [entry]);
+            return {
+                matrix: asColumn.length > 0 ? asColumn : [[null]],
+                rows: Math.max(1, asColumn.length),
+                cols: 1
+            };
+        }
+
+        if (item.object.kind === 'vectorSet' || item.object.kind === 'basis') {
+            const vectors = item.object.vectors.map(vector => vector.map(parseCell));
+            const dimension = vectors[0]?.length ?? 0;
+            const values = Array.from({ length: dimension }, (_, row) => vectors.map(vector => vector[row] ?? null));
+            return {
+                matrix: values.length > 0 && (values[0]?.length ?? 0) > 0 ? values : [[null]],
+                rows: Math.max(1, values.length),
+                cols: Math.max(1, values[0]?.length ?? 0)
+            };
+        }
+
+        if (item.object.kind === 'linearMap') {
+            const values = item.object.matrix.map(row => row.map(parseCell));
+            return {
+                matrix: values.length > 0 && (values[0]?.length ?? 0) > 0 ? values : [[null]],
+                rows: Math.max(1, item.object.matrix.length),
+                cols: Math.max(1, item.object.matrix[0]?.length ?? 0)
+            };
+        }
+
+        return null;
+    }, []);
+
+    const handleToggleLibraryFavorite = useCallback((id: string) => {
+        setLibraryCatalog(prev => setLibraryItemFavorite(prev, id, undefined, Date.now()));
+    }, []);
+
+    const handleOpenFromLibrary = useCallback((item: LibraryItem) => {
+        const openedAt = Date.now();
+        setLibraryCatalog(prev => markLibraryItemOpened(prev, item.id, openedAt));
+
+        if (item.object.kind === 'workspace') {
+            handleReset();
+            applySharedState(item.object.snapshot);
+            setLoadModalOpen(false);
+            return;
+        }
+
+        const resolved = toMatrixFromLibraryItem(item);
+        if (!resolved) {
+            setError(`${LIBRARY_KIND_LABELS[item.kind]} objects cannot be loaded into matrix targets.`);
+            setLoadModalOpen(false);
+            return;
+        }
+
+        const { matrix, rows: itemRows, cols: itemCols } = resolved;
         if (loadTarget === 'solver') {
-            setRows(savedMatrix.rows);
+            setRows(itemRows);
             if (systemType === 'non-homogeneous') {
-                if (savedMatrix.cols > 1) setCols(savedMatrix.cols - 1);
+                if (itemCols > 1) setCols(itemCols - 1);
                 else setCols(1);
             } else {
-                setCols(savedMatrix.cols);
+                setCols(itemCols);
             }
-            setSolverMatrix(parsedMatrix);
+            setSolverMatrix(matrix);
             bumpSolverMatrixKey();
         } else if (loadTarget === 'analysis') {
-            setAnalysisRows(savedMatrix.rows);
-            setAnalysisCols(savedMatrix.cols);
-            setAnalysisMatrix(parsedMatrix);
+            setAnalysisRows(itemRows);
+            setAnalysisCols(itemCols);
+            setAnalysisMatrix(matrix);
             bumpAnalysisMatrixKey();
         } else {
             setMatrixDefs(prev => ({
                 ...prev,
                 [loadTarget]: {
-                    rows: savedMatrix.rows,
-                    cols: savedMatrix.cols,
-                    matrix: parsedMatrix,
+                    rows: itemRows,
+                    cols: itemCols,
+                    matrix,
                     key: nextKey()
                 }
             }));
         }
         setLoadModalOpen(false);
-    }, [bumpAnalysisMatrixKey, bumpSolverMatrixKey, loadTarget, nextKey, systemType]);
+    }, [applySharedState, bumpAnalysisMatrixKey, bumpSolverMatrixKey, handleReset, loadTarget, nextKey, systemType, toMatrixFromLibraryItem]);
 
     const handleUseResult = (matrix: ValidMatrix) => {
         setUseResultModal({ open: true, matrix });
@@ -2942,6 +3703,12 @@ const App: React.FC = () => {
                 </div>
             )}
 
+            <AnalyzeDiscoveryPanel
+                entries={ANALYZE_DISCOVERY_ENTRIES}
+                advancedRoutes={ADVANCED_TOOL_ROUTES}
+                onOpenRoute={openAnalyzeRoute}
+            />
+
             <div className="mt-6 text-center">
                 <div className="flex items-center justify-center gap-2 mb-4">
                     <h2 className="text-xl font-semibold" style={{ color: 'var(--primary-text-color)' }}>Analysis Matrix</h2>
@@ -3031,6 +3798,31 @@ const App: React.FC = () => {
             section: 'navigation',
             run: () => handlePrimaryRouteChange(route.id)
         }));
+        const analyzeDiscoveryCommands: ToolDescriptor[] = (() => {
+            const commandsFromEntries = ANALYZE_DISCOVERY_ENTRIES.map((entry) => ({
+                id: `analyze-route:${entry.route}`,
+                label: entry.route === '/analyze/exact-algebra-studio'
+                    ? 'Open Exact Algebra Studio'
+                    : `Open ${entry.label}`,
+                description: `Route ${entry.route}`,
+                section: 'advanced' as const,
+                run: () => openAnalyzeRoute(entry.route)
+            }));
+            const commandsFromAdvancedRoutes = ADVANCED_TOOL_ROUTES.map((route) => ({
+                id: `analyze-advanced-route:${route.path}`,
+                label: `Open ${route.label}`,
+                description: `Route ${route.path}`,
+                section: 'advanced' as const,
+                run: () => openAnalyzeRoute(route.path)
+            }));
+            const deduped = new Map<string, ToolDescriptor>();
+            for (const command of [...commandsFromEntries, ...commandsFromAdvancedRoutes]) {
+                if (!deduped.has(command.id)) {
+                    deduped.set(command.id, command);
+                }
+            }
+            return Array.from(deduped.values());
+        })();
         const actionCommands: ToolDescriptor[] = [
             {
                 id: 'action:calculate',
@@ -3051,8 +3843,8 @@ const App: React.FC = () => {
             ...tool,
             id: `more:${tool.id}`
         }));
-        return [...routeCommands, ...actionCommands, ...secondaryCommands];
-    }, [appMode, handleCalculate, handleReset, moreMenuTools, primaryRoutes, handlePrimaryRouteChange]);
+        return [...routeCommands, ...analyzeDiscoveryCommands, ...actionCommands, ...secondaryCommands];
+    }, [appMode, handleCalculate, handleReset, moreMenuTools, primaryRoutes, handlePrimaryRouteChange, openAnalyzeRoute]);
 
     const resultShellActions = useMemo<ResultAction[]>(() => ([
         {
@@ -3084,7 +3876,26 @@ const App: React.FC = () => {
                 </div>
                 <button onClick={() => setExportModalOpen(true)} className="px-3 py-2 rounded-lg glass-btn text-sm">Export / Import</button>
             </div>
-            <p className="text-sm text-secondary">Browse saved matrices and load them into System Solver, Analysis, or Matrix Operations.</p>
+            <p className="text-sm text-secondary">Browse catalog objects and load reusable data into System Solver, Analysis, or Matrix Operations.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-2">
+                <button
+                    onClick={() => setLibraryKindFilter('all')}
+                    className={`p-2 rounded-lg text-left ${libraryKindFilter === 'all' ? 'bg-indigo-600 text-white' : 'glass-btn'}`}
+                >
+                    <div className="text-[11px] uppercase tracking-wide">All</div>
+                    <div className="text-base font-semibold">{catalogLibraryItems.length}</div>
+                </button>
+                {LIBRARY_KIND_ORDER.map(kind => (
+                    <button
+                        key={kind}
+                        onClick={() => setLibraryKindFilter(kind)}
+                        className={`p-2 rounded-lg text-left ${libraryKindFilter === kind ? 'bg-indigo-600 text-white' : 'glass-btn'}`}
+                    >
+                        <div className="text-[11px] uppercase tracking-wide">{LIBRARY_KIND_LABELS[kind]}</div>
+                        <div className="text-base font-semibold">{libraryKindCounts[kind]}</div>
+                    </button>
+                ))}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
                 <label className="text-sm text-secondary" htmlFor="library-load-target">Load target</label>
                 <select
@@ -3100,8 +3911,58 @@ const App: React.FC = () => {
                     ))}
                 </select>
             </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-secondary">
+                <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={libraryFavoritesOnly} onChange={e => setLibraryFavoritesOnly(e.target.checked)} />
+                    Favorites only
+                </label>
+                <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={libraryShowRecents} onChange={e => setLibraryShowRecents(e.target.checked)} />
+                    Show recents
+                </label>
+                <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={libraryShowHistory} onChange={e => setLibraryShowHistory(e.target.checked)} />
+                    Show history
+                </label>
+            </div>
+            {libraryShowRecents && (
+                <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Recent Opens</div>
+                    {libraryRecents.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                            {libraryRecents.map(({ entry, item }) => (
+                                <button key={`${entry.itemId}-${entry.openedAt}`} onClick={() => handleOpenFromLibrary(item.sourceItem)} className="text-left p-2 rounded-lg glass-btn">
+                                    <div className="text-sm font-medium text-ink">{item.name}</div>
+                                    <div className="text-[11px] text-secondary">{LIBRARY_KIND_LABELS[item.kind]} • {new Date(entry.openedAt).toLocaleString()}</div>
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-secondary">No recents yet.</p>
+                    )}
+                </div>
+            )}
+            {libraryShowHistory && (
+                <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Catalog History</div>
+                    {libraryHistoryEntries.length > 0 ? (
+                        <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                            {libraryHistoryEntries.map(({ entry, item }) => (
+                                <div key={entry.id} className="p-2 rounded-lg glass-input/50 text-xs text-secondary flex items-center justify-between gap-2">
+                                    <span className="truncate">
+                                        {entry.action.toUpperCase()} {item ? `• ${item.name}` : ''} {entry.details?.kind ? `• ${String(entry.details.kind)}` : ''}
+                                    </span>
+                                    <span className="shrink-0">{new Date(entry.at).toLocaleTimeString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-secondary">No catalog history entries.</p>
+                    )}
+                </div>
+            )}
             <div className="flex flex-wrap items-center gap-2">
-                <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, folder, or tag..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, kind, folder, tag, or summary..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                 <select value={libraryFolderFilter} onChange={e => setLibraryFolderFilter(e.target.value)} className="rounded-md glass-input px-2 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     <option value="all">All folders</option>
                     {libraryFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
@@ -3120,23 +3981,23 @@ const App: React.FC = () => {
                             maxHeight={520}
                             className="pr-1"
                             renderItem={(index) => {
-                                const sm = filteredLibrary[index];
+                                const libraryItem = filteredLibrary[index];
                                 return (
-                                    <div key={sm.id} className="pb-2">
-                                        <LibraryListItem item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                                    <div key={libraryItem.id} className="pb-2">
+                                        <LibraryListItem item={libraryItem} onDelete={handleDeleteFromLibrary} onOpen={handleOpenFromLibrary} onToggleFavorite={handleToggleLibraryFavorite} />
                                     </div>
                                 );
                             }}
                         />
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1">
-                            {filteredLibrary.map(sm => (
-                                <LibraryCardItem key={sm.id} item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                            {filteredLibrary.map(libraryItem => (
+                                <LibraryCardItem key={libraryItem.id} item={libraryItem} onDelete={handleDeleteFromLibrary} onOpen={handleOpenFromLibrary} onToggleFavorite={handleToggleLibraryFavorite} />
                             ))}
                         </div>
                     )
                 ) : (
-                    <p className="text-sm text-secondary">No matrices found.</p>
+                    <p className="text-sm text-secondary">No catalog objects found for the active filters.</p>
                 )}
             </div>
         </div>
@@ -3347,7 +4208,7 @@ const App: React.FC = () => {
                         <InfoButton infoKey="library" />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, folder, or tag..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, kind, folder, tag, or summary..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                         <select value={libraryFolderFilter} onChange={e => setLibraryFolderFilter(e.target.value)} className="rounded-md glass-input px-2 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                             <option value="all">All folders</option>
                             {libraryFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
@@ -3366,23 +4227,23 @@ const App: React.FC = () => {
                                     maxHeight={384}
                                     className="pr-1"
                                     renderItem={(index) => {
-                                        const sm = filteredLibrary[index];
+                                        const libraryItem = filteredLibrary[index];
                                         return (
-                                            <div key={sm.id} className="pb-2">
-                                                <LibraryListItem item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                                            <div key={libraryItem.id} className="pb-2">
+                                                <LibraryListItem item={libraryItem} onDelete={handleDeleteFromLibrary} onOpen={handleOpenFromLibrary} onToggleFavorite={handleToggleLibraryFavorite} />
                                             </div>
                                         );
                                     }}
                                 />
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
-                                    {filteredLibrary.map(sm => (
-                                        <LibraryCardItem key={sm.id} item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                                    {filteredLibrary.map(libraryItem => (
+                                        <LibraryCardItem key={libraryItem.id} item={libraryItem} onDelete={handleDeleteFromLibrary} onOpen={handleOpenFromLibrary} onToggleFavorite={handleToggleLibraryFavorite} />
                                     ))}
                                 </div>
                             )
                         ) : (
-                            <p className="text-sm text-secondary">No matrices found.</p>
+                            <p className="text-sm text-secondary">No catalog objects found for the active filters.</p>
                         )}
                     </div>
                 </div>
@@ -3574,8 +4435,23 @@ const App: React.FC = () => {
                 <ExactAlgebraStudio
                     matrixOptions={getMatrixOptions()}
                     resolveMatrixByKey={resolveMatrixByKey}
-                    onUseMatrix={handleUseResult}
-                    onSaveMatrix={(matrix, _preferredName) => handleOpenSaveModal(matrix, matrix.length, matrix[0]?.length || 1)}
+                    onSurfaceResultsChange={(surface, surfaceResults) => {
+                        if (surfaceResults.length === 0) return;
+                        publishAdaptedSurfaceResult(
+                            adaptExactSurfaceResultsToSharedResult(`Exact Algebra Studio (${surface})`, surfaceResults)
+                        );
+                    }}
+                    onUseMatrix={(matrix) => {
+                        publishAdaptedSurfaceResult(adaptMatrixSurfaceToSharedResult('Exact Algebra Studio output', matrix));
+                        handleUseResult(matrix);
+                    }}
+                    onSaveMatrix={(matrix, preferredName) => {
+                        const label = preferredName && preferredName.trim().length > 0
+                            ? preferredName.trim()
+                            : 'Exact Algebra Studio output';
+                        publishAdaptedSurfaceResult(adaptMatrixSurfaceToSharedResult(label, matrix));
+                        handleOpenSaveModal(matrix, matrix.length, matrix[0]?.length || 1);
+                    }}
                     onError={reportError}
                 />
             </Modal>

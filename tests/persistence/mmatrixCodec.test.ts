@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { decodeMMatrixWorkspace, encodeMMatrixWorkspace, toLegacySharePayload } from '../../persistence/workspace/mmatrixCodec';
+import {
+    decodeMMatrixWorkspace,
+    encodeLegacyCompatibleMMatrix,
+    encodeMMatrixWorkspace,
+    toLegacySharePayload
+} from '../../persistence/workspace/mmatrixCodec';
 
 describe('mmatrix codec', () => {
     it('migrates legacy v2 share payloads into schema v3', () => {
@@ -70,5 +75,33 @@ describe('mmatrix codec', () => {
         expect(legacy.version).toBe(2);
         expect(Array.isArray(legacy.library)).toBe(true);
         expect(legacy.library?.[0].name).toBe('Legacy Matrix');
+    });
+
+    it('wraps shared-state payloads as migrated schema v3 snapshots', () => {
+        const decoded = decodeMMatrixWorkspace(JSON.stringify({ appMode: 'analysis' }), 4000);
+
+        expect(decoded.migrated).toBe(true);
+        expect(decoded.sourceSchemaVersion).toBe(1);
+        expect(decoded.snapshot.schemaVersion).toBe(3);
+        expect(decoded.snapshot.state.appMode).toBe('analysis');
+    });
+
+    it('supports legacy-compatible export payloads for fallback import paths', () => {
+        const base = decodeMMatrixWorkspace(
+            JSON.stringify({
+                version: 2,
+                state: { appMode: 'matrixOperations' },
+                library: []
+            }),
+            5000
+        ).snapshot;
+
+        const legacyPayload = encodeLegacyCompatibleMMatrix(base, true);
+        const decoded = decodeMMatrixWorkspace(legacyPayload, 5100);
+
+        expect(decoded.migrated).toBe(true);
+        expect(decoded.sourceSchemaVersion).toBe(2);
+        expect(decoded.snapshot.schemaVersion).toBe(3);
+        expect(decoded.snapshot.state.appMode).toBe('matrixOperations');
     });
 });

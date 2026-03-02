@@ -7,6 +7,14 @@ import type {
 import { advancedToolsAsAnalyzeDescriptors } from '../advanced/registry';
 import { ORTHOGONALITY_TOOL_DESCRIPTORS } from '../orthogonality/workflows';
 
+export interface AnalyzeDiscoveryEntry {
+    id: string;
+    label: string;
+    summary: string;
+    route: string;
+    category?: AnalyzeCategoryId;
+}
+
 export const ANALYZE_CATEGORY_DESCRIPTORS: AnalyzeCategoryDescriptor[] = [
     {
         id: 'matrix-properties',
@@ -84,6 +92,16 @@ const CORE_ANALYZE_TOOL_DESCRIPTORS: AnalyzeToolDescriptor[] = [
         stability: 'stable'
     },
     {
+        id: 'analyze-exact-algebra-studio',
+        title: 'Exact Algebra Studio',
+        summary: 'Open exact spaces, subspaces, basis, and linear-map workflows.',
+        category: 'linear-maps',
+        route: '/analyze/exact-algebra-studio',
+        keywords: ['exact', 'spaces', 'maps', 'basis', 'subspace'],
+        source: 'core',
+        stability: 'stable'
+    },
+    {
         id: 'analyze-eigen-canonical-overview',
         title: 'Eigen and Canonical Overview',
         summary: 'Navigate eigenspaces, diagonalization, minimal polynomial, and Jordan tools.',
@@ -112,6 +130,57 @@ const CORE_ANALYZE_TOOL_DESCRIPTORS: AnalyzeToolDescriptor[] = [
         keywords: ['advanced', 'desktop', 'iterative', 'sparse'],
         source: 'core',
         stability: 'stable'
+    }
+];
+
+export const ANALYZE_DISCOVERY_ENTRIES: AnalyzeDiscoveryEntry[] = [
+    {
+        id: 'analyze-discovery-matrix-properties',
+        label: 'Matrix Properties',
+        summary: 'Decompositions, rank, trace, and spectral diagnostics.',
+        route: '/analyze/matrix-properties',
+        category: 'matrix-properties'
+    },
+    {
+        id: 'analyze-discovery-subspaces',
+        label: 'Subspaces and Bases',
+        summary: 'Span, basis, dimension, and subspace structure workflows.',
+        route: '/analyze/subspaces-bases',
+        category: 'subspaces-bases'
+    },
+    {
+        id: 'analyze-discovery-linear-maps',
+        label: 'Linear Maps',
+        summary: 'Kernel/range and representation workflows.',
+        route: '/analyze/linear-maps',
+        category: 'linear-maps'
+    },
+    {
+        id: 'analyze-discovery-eigen',
+        label: 'Eigen and Canonical Forms',
+        summary: 'Eigen analysis, multiplicities, diagonalization, and Jordan workflows.',
+        route: '/analyze/eigen-canonical',
+        category: 'eigen-canonical'
+    },
+    {
+        id: 'analyze-discovery-orthogonality',
+        label: 'Orthogonality and Least Squares',
+        summary: 'Projections, orthogonality checks, and least-squares diagnostics.',
+        route: '/analyze/orthogonality',
+        category: 'orthogonality-least-squares'
+    },
+    {
+        id: 'analyze-discovery-advanced',
+        label: 'Advanced Extras',
+        summary: 'Iterative/sparse and advanced desktop-oriented routes.',
+        route: '/analyze/advanced',
+        category: 'advanced-desktop-extras'
+    },
+    {
+        id: 'analyze-discovery-exact-studio',
+        label: 'Exact Spaces and Maps',
+        summary: 'Launch Exact Algebra Studio from the route-driven Analyze surface.',
+        route: '/analyze/exact-algebra-studio'
     }
 ];
 

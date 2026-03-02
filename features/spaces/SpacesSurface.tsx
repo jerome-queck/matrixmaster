@@ -40,6 +40,7 @@ interface SpacesSurfaceProps {
     resolveMatrixByKey: (key: string) => Matrix | null;
     onUseMatrix: (matrix: ValidMatrix) => void;
     onSaveMatrix: (matrix: ValidMatrix, preferredName: string) => void;
+    onResultsChange?: (results: ExactSurfaceResult[]) => void;
     onError?: (message: string) => void;
 }
 
@@ -87,6 +88,7 @@ export const SpacesSurface: React.FC<SpacesSurfaceProps> = ({
     resolveMatrixByKey,
     onUseMatrix,
     onSaveMatrix,
+    onResultsChange,
     onError,
 }) => {
     const [spanVectors, setSpanVectors] = React.useState<string[][]>(createStringVectors(3, 3));
@@ -122,6 +124,10 @@ export const SpacesSurface: React.FC<SpacesSurfaceProps> = ({
         },
         [onError, onSaveMatrix, onUseMatrix]
     );
+
+    React.useEffect(() => {
+        onResultsChange?.(allResults);
+    }, [allResults, onResultsChange]);
 
     const runSpanWorkflow = () => {
         try {

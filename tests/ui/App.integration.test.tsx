@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import App from '../../App';
@@ -33,6 +33,15 @@ describe('App integration', () => {
   const openExportImport = async (user: ReturnType<typeof userEvent.setup>) => {
     const moreDialog = await openMore(user);
     await user.click(within(moreDialog).getByRole('button', { name: /export \/ import/i }));
+  };
+  const openCommandPalette = async () => {
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    let dialog = screen.queryByRole('dialog', { name: /command palette/i });
+    if (!dialog) {
+      fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+      dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    }
+    return dialog as HTMLElement;
   };
 
   afterEach(() => {
@@ -186,5 +195,100 @@ describe('App integration', () => {
     expect(screen.getByRole('button', { name: /^analyze$/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^matrix operations$/i }));
     expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+  });
+
+  it('switches between all four top-level routes from primary navigation', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const systemSolverRoute = screen.getByRole('button', { name: /^system solver$/i });
+    const matrixOperationsRoute = screen.getByRole('button', { name: /^matrix operations$/i });
+    const analysisRoute = screen.getByRole('button', { name: /^analysis$/i });
+    const libraryRoute = screen.getByRole('button', { name: /^library$/i });
+
+    expect(systemSolverRoute.className).toContain('active');
+    expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+
+    await user.click(matrixOperationsRoute);
+    expect(matrixOperationsRoute.className).toContain('active');
+    expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+
+    await user.click(analysisRoute);
+    expect(analysisRoute.className).toContain('active');
+    expect(screen.getByRole('button', { name: /^analyze$/i })).toBeInTheDocument();
+
+    await user.click(libraryRoute);
+    expect(libraryRoute.className).toContain('active');
+    expect(screen.getByLabelText(/load target/i)).toBeInTheDocument();
+
+    await user.click(systemSolverRoute);
+    expect(systemSolverRoute.className).toContain('active');
+    expect(screen.getByRole('button', { name: /^calculate$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/load target/i)).not.toBeInTheDocument();
+  });
+
+  it('opens command palette via Cmd/Ctrl+K and runs a route command', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const commandPalette = await openCommandPalette();
+    const paletteScope = within(commandPalette);
+
+    expect(paletteScope.getByRole('button', { name: /go to system solver/i })).toBeInTheDocument();
+    expect(paletteScope.getByRole('button', { name: /go to matrix operations/i })).toBeInTheDocument();
+    expect(paletteScope.getByRole('button', { name: /go to analysis/i })).toBeInTheDocument();
+    expect(paletteScope.getByRole('button', { name: /go to library/i })).toBeInTheDocument();
+
+    await user.type(paletteScope.getByPlaceholderText(/type a command/i), 'library');
+    await user.click(paletteScope.getByRole('button', { name: /go to library/i }));
+
+    const libraryRoute = screen.getByRole('button', { name: /^library$/i });
+    expect(libraryRoute.className).toContain('active');
+    expect(screen.getByLabelText(/load target/i)).toBeInTheDocument();
+  });
+
+  it('opens exact algebra studio from the analysis discovery panel route entry', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /^analysis$/i }));
+    expect(screen.getByText(/analyze workflows/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /exact spaces and maps/i }));
+    expect(screen.getByRole('dialog', { name: /exact algebra studio/i })).toBeInTheDocument();
+  });
+
+  it('publishes an input-required placeholder when analyze matrix-properties route lacks matrix input', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /^analysis$/i }));
+    await user.click(screen.getByRole('button', { name: /matrix properties/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/status: input required/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/decomposition overview/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('exposes analyze route-discovery commands in command palette and executes matrix functions route', async () => {
+    setWorkerMock();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const commandPalette = await openCommandPalette();
+    const paletteScope = within(commandPalette);
+
+    expect(paletteScope.getByRole('button', { name: /open exact algebra studio/i })).toBeInTheDocument();
+    expect(paletteScope.getByRole('button', { name: /open matrix functions/i })).toBeInTheDocument();
+
+    await user.type(paletteScope.getByPlaceholderText(/type a command/i), 'matrix functions');
+    await user.click(paletteScope.getByRole('button', { name: /open matrix functions/i }));
+
+    expect(screen.getByRole('dialog', { name: /matrix functions/i })).toBeInTheDocument();
   });
 });
