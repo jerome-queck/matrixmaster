@@ -1,6 +1,9 @@
-# Matrix Master Codex Cloud runbook
+# Matrix Master Codex CLI runbook
 
-Use this runbook to drive 4 parallel Codex Cloud branches without wrecking the build.
+This runbook is for Codex CLI execution.
+Any reference to "Codex Cloud branch/run" should be read as "Codex CLI sub-agent stream".
+
+Use this runbook to drive 4 parallel Codex CLI sub-agents without wrecking the build.
 
 ---
 
@@ -39,21 +42,29 @@ npm run release:check
 
 ---
 
-## Recommended branch names and PR intents
+## Recommended stream labels and PR intents
 
-Use one Codex Cloud run per branch:
+Use one Codex CLI sub-agent per stream:
 
-1. `codex/shell-library-route`
+1. Sub-agent A (`codex/shell-library-route`)
    - PR intent: `[minor] Shell seams and Library top-level route`
 
-2. `codex/local-library-persistence`
+2. Sub-agent B (`codex/local-library-persistence`)
    - PR intent: `[minor] Local Library, .mmatrix persistence, and history`
 
-3. `codex/exact-algebra-spaces-maps`
+3. Sub-agent C (`codex/exact-algebra-spaces-maps`)
    - PR intent: `[minor] Exact algebra, vectors, spaces, and linear maps`
 
-4. `codex/analyze-orthogonality-advanced`
+4. Sub-agent D (`codex/analyze-orthogonality-advanced`)
    - PR intent: `[minor] Analyze, orthogonality, and advanced roadmap tools`
+
+### 4-version clarification
+- Version 1 -> Sub-agent A
+- Version 2 -> Sub-agent B
+- Version 3 -> Sub-agent C
+- Version 4 -> Sub-agent D
+
+If sub-agents are not available, run the same four streams sequentially in the listed merge order.
 
 ### Changelog conflict avoidance
 To reduce merge-conflict nonsense in `CHANGELOG.md`, have each stream append to its own subsection under `Unreleased`:
@@ -96,9 +107,9 @@ This is not ceremonial wizard theater. It is how you avoid all four branches try
 
 ---
 
-## Shared preamble for every Codex prompt
+## Shared preamble for every Codex CLI sub-agent prompt
 
-Paste this at the top of each Codex Cloud task:
+Paste this at the top of each sub-agent task:
 
 ```text
 You are working in the existing Matrix Master Electron repository.
@@ -125,7 +136,7 @@ Do not expose unfinished visible surfaces unless they are clearly gated.
 ```text
 Use the shared preamble.
 
-You own Stream A.
+You are Sub-agent A and own Stream A.
 Branch name: codex/shell-library-route
 PR intent: [minor] Shell seams and Library top-level route
 
@@ -177,7 +188,7 @@ Done means:
 ```text
 Use the shared preamble.
 
-You own Stream B.
+You are Sub-agent B and own Stream B.
 Branch name: codex/local-library-persistence
 PR intent: [minor] Local Library, .mmatrix persistence, and history
 
@@ -231,7 +242,7 @@ Done means:
 ```text
 Use the shared preamble.
 
-You own Stream C.
+You are Sub-agent C and own Stream C.
 Branch name: codex/exact-algebra-spaces-maps
 PR intent: [minor] Exact algebra, vectors, spaces, and linear maps
 
@@ -287,7 +298,7 @@ Done means:
 ```text
 Use the shared preamble.
 
-You own Stream D.
+You are Sub-agent D and own Stream D.
 Branch name: codex/analyze-orthogonality-advanced
 PR intent: [minor] Analyze, orthogonality, and advanced roadmap tools
 
@@ -411,4 +422,3 @@ Stop and repair immediately if a branch introduces any of these:
 - a second LaTeX renderer path
 - visible sync/account UI despite the local-only decision
 - packaged Electron build regressions
-

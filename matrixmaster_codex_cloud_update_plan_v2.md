@@ -1,4 +1,7 @@
-# Matrix Master Electron overhaul plan for Codex Cloud
+# Matrix Master Electron overhaul plan for Codex CLI
+
+This plan is executed in Codex CLI.
+Any previous "Codex Cloud branch" wording is translated to "Codex CLI sub-agent stream".
 
 ## Mission
 
@@ -305,7 +308,7 @@ npm run release:check
 
 ---
 
-## File ownership rules for 4 parallel Codex streams
+## File ownership rules for 4 parallel CLI sub-agents
 
 ### Stream A owns freely
 - `App.tsx`
@@ -356,9 +359,17 @@ Avoid simultaneous broad edits to:
 
 ---
 
-## The 4-stream Codex strategy
+## The 4-stream Codex CLI strategy
 
-Run four Codex branches in parallel, but merge them in a controlled order.
+Run four Codex CLI sub-agents in parallel, but integrate their work in a controlled order.
+
+### Version-to-sub-agent mapping
+- Version 1 = Sub-agent A (Shell, seams, Library top-level route)
+- Version 2 = Sub-agent B (Local Library, persistence, `.mmatrix`, history, reports)
+- Version 3 = Sub-agent C (Exact algebra, vectors, spaces, maps)
+- Version 4 = Sub-agent D (Analyze, orthogonality, canonical forms, advanced tools)
+
+If sub-agents are unavailable in the current environment, execute the same four streams sequentially using the same ownership boundaries and merge order.
 
 ### Stream A - Shell, seams, Library top-level route
 
@@ -566,7 +577,7 @@ Recommended merge order:
 
 This should be executed as a sequence of safe, vertical, tested upgrades to the existing Electron app.
 
-Do not ask Codex Cloud to "replace Matrix Master with the zip." That is how one summons merge-conflict goblins.
+Do not ask Codex CLI to "replace Matrix Master with the zip." That is how one summons merge-conflict goblins.
 
 Ask Codex to:
 - preserve the current product DNA
@@ -575,4 +586,3 @@ Ask Codex to:
 - keep `.mmatrix` and local-only persistence intact
 - preserve current LaTeX behavior
 - pass the build after every merge
-

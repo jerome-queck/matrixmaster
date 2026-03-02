@@ -346,3 +346,16 @@ export interface OperationNode {
     resultName: string; // e.g., T1, T2, Final Result
     error?: string | null;
 }
+
+// --- Workspace / Library Contracts ---
+
+export type WorkspaceSchemaVersion = 1 | 2 | 3;
+export type LibraryObjectKind = 'matrix' | 'vector' | 'vectorSet' | 'basis' | 'linearMap' | 'workspace';
+export type SavedOutputKind = 'systemSolver' | 'matrixOperations' | 'analysis' | 'batch' | 'workspace';
+
+export interface WorkspaceSnapshot {
+    format: 'mmatrix';
+    schemaVersion: WorkspaceSchemaVersion;
+    createdAt: number;
+    updatedAt: number;
+}
