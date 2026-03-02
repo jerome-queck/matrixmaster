@@ -8,6 +8,7 @@ import { OperationBuilder } from './components/OperationBuilder';
 import ReportView from './components/ReportView';
 import DocumentationView from './components/DocumentationView';
 import { VirtualizedList } from './components/VirtualizedList';
+import ExactAlgebraStudio from './features/solve/ExactAlgebraStudio';
 import { parseInput, stringifySymbolicFraction, expressionToBuilderNodes, builderNodesToExpression, toNumericMatrix, formatMatrixToLatex, formatAugmentedMatrixToLatex, formatSymbolicFractionToLatex, areSFEqual, isZeroSF, symbolicFractionToNumber, formatNumberToLatex, formatNumericMatrixToLatex, formatNumericMatrixToCsv, calculateRank, normalizeExpression, validateExpression, numericMatrixExp, numericMatrixLog, numericMatrixSqrt, numericJordanForm, numericJacobi, numericGaussSeidel, numericConjugateGradient, numericGMRES, numericLU, simplifySymbolicFractionWithTrace } from './services/matrixService';
 import { buildStepsBundle } from './services/exportService';
 import { copyToClipboard } from './services/clipboardService';
@@ -16,6 +17,14 @@ import type { Matrix, CalculationResult, SystemType, SymbolicFraction, CramersRu
 import { useMatrixWorker } from './hooks/useMatrixWorker';
 import { useBatchRunner } from './hooks/useBatchRunner';
 import { useDelayedFlag } from './hooks/useDelayedFlag';
+import TopNavigation from './app/shell/TopNavigation';
+import MoreMenu from './app/shell/MoreMenu';
+import CommandPalette from './app/shell/CommandPalette';
+import ResultShell from './app/shell/ResultShell';
+import { CORE_PRIMARY_ROUTES } from './app/routes/coreRoutes';
+import { getRegisteredFeatureRoutes } from './app/routes/extensions';
+import { buildRouteRegistry, getPrimaryRoutes } from './app/registry/routeRegistry';
+import type { PrimaryRouteId, ToolDescriptor, ResultAction } from './app/registry/contracts';
 
 type AllResultTypes = AnyResult;
 
@@ -280,6 +289,7 @@ type InfoKey = keyof typeof INFO_CONTENT;
 const App: React.FC = () => {
     // Shared State
     const [appMode, setAppMode] = useState<AppMode>('systemSolver');
+    const [activeRouteId, setActiveRouteId] = useState<PrimaryRouteId>('systemSolver');
     const [results, setResults] = useState<AllResultTypes | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
@@ -412,8 +422,10 @@ const App: React.FC = () => {
     const [isHelpOpen, setHelpOpen] = useState(false);
     const [isReportOpen, setReportOpen] = useState(false);
     const [isToolsOpen, setToolsOpen] = useState(false);
+    const [isExactAlgebraOpen, setExactAlgebraOpen] = useState(false);
     const [isDocsOpen, setDocsOpen] = useState(false);
     const [isMoreOpen, setMoreOpen] = useState(false);
+    const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [advancedToolsCategory, setAdvancedToolsCategory] = useState<'overview' | 'data' | 'study' | 'math' | 'workspace'>('overview');
     const [uiSurface, setUiSurface] = useState<UiSurface>('core');
     const [printMode, setPrintMode] = useState<'none' | 'report' | 'batch' | 'docs'>('none');
@@ -932,6 +944,11 @@ const App: React.FC = () => {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             const key = event.key.toLowerCase();
+            if ((event.metaKey || event.ctrlKey) && key === 'k') {
+                event.preventDefault();
+                setCommandPaletteOpen(true);
+                return;
+            }
             if ((event.metaKey || event.ctrlKey) && key === 'enter') {
                 event.preventDefault();
                 handleCalculate();
@@ -940,6 +957,10 @@ const App: React.FC = () => {
             if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === 'r') {
                 event.preventDefault();
                 handleReset();
+                return;
+            }
+            if (key === 'escape') {
+                setCommandPaletteOpen(false);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -1005,6 +1026,23 @@ const App: React.FC = () => {
         library.forEach(item => folders.add(item.folder || 'Unsorted'));
         return Array.from(folders.values()).sort();
     }, [library]);
+
+    const routeRegistry = useMemo(() => {
+        return buildRouteRegistry({
+            coreRoutes: CORE_PRIMARY_ROUTES,
+            extensions: getRegisteredFeatureRoutes()
+        });
+    }, []);
+
+    const primaryRoutes = useMemo(() => getPrimaryRoutes(routeRegistry), [routeRegistry]);
+    const primaryRouteMap = useMemo(() => {
+        return new Map(primaryRoutes.map(route => [route.id, route]));
+    }, [primaryRoutes]);
+    const activeRoute = primaryRouteMap.get(activeRouteId);
+
+    useEffect(() => {
+        setActiveRouteId(appMode);
+    }, [appMode]);
 
     useEffect(() => {
         setMatrixDefs(prevDefs => {
@@ -1512,7 +1550,9 @@ const App: React.FC = () => {
                 pushToast('Determinant of Operation has been removed. Switched to Matrix Operations.', 'info');
             }
         }
-        setAppMode(nextMode as AppMode);
+        const nextAppMode = nextMode as AppMode;
+        setAppMode(nextAppMode);
+        setActiveRouteId(nextAppMode);
         const loadedSystemType = state.systemType || 'homogeneous';
         setSystemType(loadedSystemType);
         const loadedRows = state.rows ?? 3;
@@ -2073,7 +2113,23 @@ const App: React.FC = () => {
 
     const handleModeChange = (mode: AppMode) => {
         setAppMode(mode);
+        setActiveRouteId(mode);
         handleReset();
+    };
+
+    const handlePrimaryRouteChange = (routeId: string) => {
+        if (routeId === 'library') {
+            setActiveRouteId('library');
+            return;
+        }
+        const route = primaryRouteMap.get(routeId);
+        if (route?.appMode) {
+            handleModeChange(route.appMode);
+            return;
+        }
+        if (routeId === 'systemSolver' || routeId === 'matrixOperations' || routeId === 'analysis') {
+            handleModeChange(routeId as AppMode);
+        }
     };
 
     const toggleSection = (section: string) => {
@@ -2511,6 +2567,7 @@ const App: React.FC = () => {
 
         if (target === 'solver') {
             setAppMode('systemSolver');
+            setActiveRouteId('systemSolver');
             setRows(resultRows);
             setSystemType('homogeneous'); // Default to homogeneous
             setCols(resultCols);
@@ -2518,12 +2575,14 @@ const App: React.FC = () => {
             bumpSolverMatrixKey();
         } else if (target === 'analysis') {
             setAppMode('analysis');
+            setActiveRouteId('analysis');
             setAnalysisRows(resultRows);
             setAnalysisCols(resultCols);
             setAnalysisMatrix(resultMatrix);
             bumpAnalysisMatrixKey();
         } else {
             setAppMode('matrixOperations');
+            setActiveRouteId('matrixOperations');
             if (!matrixNamesInExpression.includes(target)) {
                 setExpression(prev => `${prev} * ${target}`);
             }
@@ -2926,7 +2985,164 @@ const App: React.FC = () => {
         );
     };
 
-    const inputPanel = (
+    const moreMenuTools = useMemo<ToolDescriptor[]>(() => ([
+        {
+            id: 'advanced-tools',
+            label: 'Advanced Tools',
+            description: 'Specialized utilities and helpers.',
+            section: 'advanced',
+            run: () => setToolsOpen(true)
+        },
+        {
+            id: 'history',
+            label: 'History',
+            description: 'Load snapshots and undo/redo work.',
+            section: 'workspace',
+            run: () => setHistoryOpen(true)
+        },
+        {
+            id: 'export-import',
+            label: 'Export / Import',
+            description: 'Share matrices and workspace files.',
+            section: 'data',
+            run: () => setExportModalOpen(true)
+        },
+        {
+            id: 'settings',
+            label: 'Settings',
+            description: 'Theme, formatting, and app preferences.',
+            section: 'workspace',
+            run: () => setSettingsOpen(true)
+        },
+        {
+            id: 'documentation',
+            label: 'Documentation',
+            description: 'Open the full in-app manual.',
+            section: 'help',
+            run: () => setDocsOpen(true)
+        }
+    ]), []);
+
+    const commandPaletteCommands = useMemo<ToolDescriptor[]>(() => {
+        const routeCommands: ToolDescriptor[] = primaryRoutes.map(route => ({
+            id: `route:${route.id}`,
+            label: `Go to ${route.label}`,
+            description: 'Switch primary destination',
+            section: 'navigation',
+            run: () => handlePrimaryRouteChange(route.id)
+        }));
+        const actionCommands: ToolDescriptor[] = [
+            {
+                id: 'action:calculate',
+                label: appMode === 'analysis' ? 'Analyze active matrix' : 'Calculate active workflow',
+                shortcut: 'Cmd/Ctrl+Enter',
+                section: 'workspace',
+                run: () => handleCalculate()
+            },
+            {
+                id: 'action:reset',
+                label: 'Reset active workflow',
+                shortcut: 'Cmd/Ctrl+Shift+R',
+                section: 'workspace',
+                run: () => handleReset()
+            }
+        ];
+        const secondaryCommands: ToolDescriptor[] = moreMenuTools.map(tool => ({
+            ...tool,
+            id: `more:${tool.id}`
+        }));
+        return [...routeCommands, ...actionCommands, ...secondaryCommands];
+    }, [appMode, handleCalculate, handleReset, moreMenuTools, primaryRoutes, handlePrimaryRouteChange]);
+
+    const resultShellActions = useMemo<ResultAction[]>(() => ([
+        {
+            id: 'open-history',
+            label: 'History',
+            description: 'Open snapshots and compare work.',
+            run: () => setHistoryOpen(true)
+        },
+        {
+            id: 'open-export',
+            label: 'Export / Import',
+            description: 'Open export and clipboard tools.',
+            run: () => setExportModalOpen(true)
+        },
+        {
+            id: 'open-report',
+            label: 'Print / PDF Report',
+            description: 'Generate a styled report from current results.',
+            run: () => setReportOpen(true)
+        }
+    ]), []);
+
+    const libraryRoutePanel = (
+        <div className="no-print space-y-4">
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-semibold" style={{ color: 'var(--primary-text-color)' }}>Library</h2>
+                    <InfoButton infoKey="library" />
+                </div>
+                <button onClick={() => setExportModalOpen(true)} className="px-3 py-2 rounded-lg glass-btn text-sm">Export / Import</button>
+            </div>
+            <p className="text-sm text-secondary">Browse saved matrices and load them into System Solver, Analysis, or Matrix Operations.</p>
+            <div className="flex flex-wrap items-center gap-2">
+                <label className="text-sm text-secondary" htmlFor="library-load-target">Load target</label>
+                <select
+                    id="library-load-target"
+                    value={loadTarget}
+                    onChange={e => setLoadTarget(e.target.value)}
+                    className="rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                    <option value="solver">System Solver</option>
+                    <option value="analysis">Analysis</option>
+                    {matrixNamesInExpression.map(name => (
+                        <option key={name} value={name}>Matrix {name} (Operations)</option>
+                    ))}
+                </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <input value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search by name, folder, or tag..." className="flex-1 rounded-md glass-input px-3 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <select value={libraryFolderFilter} onChange={e => setLibraryFolderFilter(e.target.value)} className="rounded-md glass-input px-2 py-2 text-ink focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <option value="all">All folders</option>
+                    {libraryFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
+                </select>
+                <div className="flex glass-panel rounded-2xl p-1">
+                    <button onClick={() => setLibraryView('grid')} className={`px-3 py-1 rounded-xl text-xs glass-tab ${libraryView === 'grid' ? 'tab active' : ''}`}>Grid</button>
+                    <button onClick={() => setLibraryView('list')} className={`px-3 py-1 rounded-xl text-xs glass-tab ${libraryView === 'list' ? 'tab active' : ''}`}>List</button>
+                </div>
+            </div>
+            <div className="space-y-2">
+                {filteredLibrary.length > 0 ? (
+                    libraryView === 'list' ? (
+                        <VirtualizedList
+                            itemCount={filteredLibrary.length}
+                            estimateHeight={96}
+                            maxHeight={520}
+                            className="pr-1"
+                            renderItem={(index) => {
+                                const sm = filteredLibrary[index];
+                                return (
+                                    <div key={sm.id} className="pb-2">
+                                        <LibraryListItem item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                                    </div>
+                                );
+                            }}
+                        />
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+                            {filteredLibrary.map(sm => (
+                                <LibraryCardItem key={sm.id} item={sm} onDelete={handleDeleteFromLibrary} onLoad={handleLoadFromLibrary} />
+                            ))}
+                        </div>
+                    )
+                ) : (
+                    <p className="text-sm text-secondary">No matrices found.</p>
+                )}
+            </div>
+        </div>
+    );
+
+    const inputPanel = activeRouteId === 'library' ? libraryRoutePanel : (
         <div className="no-print">
             {appMode === 'systemSolver' ? renderSystemSolverSetup() : appMode === 'analysis' ? renderAnalysisSetup() : renderMatrixOpsSetup()}
 
@@ -2955,9 +3171,18 @@ const App: React.FC = () => {
     );
 
     const resultsPanel = results ? (
-        <div className="print-area">
-            <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onCancelDetails={() => { cancelGroup('details', { terminate: true, reason: 'Detail calculation canceled.' }); setLoadingDetails(null); }} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} onClipboardError={reportError} />
-        </div>
+        <ResultShell
+            answer={
+                <div className="print-area">
+                    <ResultsDisplay key={resultsKey} results={results} appMode={appMode} originalMatrix={originalMatrix} analysisMatrix={analysisMatrix as ValidMatrix} tutorMode={tutorMode} numberFormat={numberFormat} variableAssumptions={variableAssumptions} openSections={openSections} onToggleSection={toggleSection} onRequestDetails={handleRequestDetails} onCancelDetails={() => { cancelGroup('details', { terminate: true, reason: 'Detail calculation canceled.' }); setLoadingDetails(null); }} onUseResult={handleUseResult} loadingDetails={loadingDetails} onExplain={handleRequestExplanation} onInfo={openInfo} onClipboardError={reportError} />
+                </div>
+            }
+            diagnostics={loadingDetails ? <p className="text-sm text-secondary">Detailed computation in progress for: {loadingDetails}</p> : undefined}
+            actions={resultShellActions}
+            steps={<p className="text-sm text-secondary">Step-by-step derivations remain inside each result section.</p>}
+            explanation={<p className="text-sm text-secondary">Use the in-result Explain controls to open contextual theory notes.</p>}
+            exportPanel={<button onClick={() => setExportModalOpen(true)} className="py-2 px-3 rounded-lg glass-btn text-sm">Open Export / Import</button>}
+        />
     ) : null;
 
     return (
@@ -3040,19 +3265,13 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                <div className="flex glass-panel rounded-2xl p-1 mb-6 no-print">
-                    <button onClick={() => handleModeChange('systemSolver')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'systemSolver' ? 'active' : ''}`}>System Solver</button>
-                    <button onClick={() => handleModeChange('matrixOperations')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'matrixOperations' ? 'active' : ''}`}>Matrix Operations</button>
-                    <button onClick={() => handleModeChange('analysis')} className={`tab glass-tab flex-1 py-2 rounded-xl transition-colors text-sm font-medium ${appMode === 'analysis' ? 'active' : ''}`}>Analysis</button>
-                </div>
+                <TopNavigation routes={primaryRoutes} activeRouteId={activeRouteId} onSelect={handlePrimaryRouteChange} />
                 <div className="flex justify-end mb-4 no-print">
-                    {appMode === 'systemSolver' && <InfoButton infoKey="systemSolver" />}
-                    {appMode === 'matrixOperations' && <InfoButton infoKey="matrixOperations" />}
-                    {appMode === 'analysis' && <InfoButton infoKey="analysis" />}
+                    {activeRoute?.infoKey && <InfoButton infoKey={activeRoute.infoKey as InfoKey} />}
                 </div>
 
                 <main className="glass-shell rounded-3xl p-4 sm:p-6 border border-transparent">
-                    {results ? (
+                    {results && activeRouteId !== 'library' ? (
                         <div
                             ref={splitContainerRef}
                             className="split-layout gap-0"
@@ -3079,7 +3298,7 @@ const App: React.FC = () => {
                     ) : (
                         <>
                             {inputPanel}
-                            {resultsPanel}
+                            {activeRouteId !== 'library' ? resultsPanel : null}
                         </>
                     )}
                     {results && (
@@ -3098,17 +3317,8 @@ const App: React.FC = () => {
                 </main>
             </div>
             {/* --- Modals --- */}
-            {isMoreOpen && (
-            <Modal title="More" isOpen={isMoreOpen} onClose={() => setMoreOpen(false)}>
-                <div className="space-y-3">
-                    <button onClick={() => { setToolsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Advanced Tools</button>
-                    <button onClick={() => { setHistoryOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">History</button>
-                    <button onClick={() => { setExportModalOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Export / Import</button>
-                    <button onClick={() => { setSettingsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Settings</button>
-                    <button onClick={() => { setDocsOpen(true); setMoreOpen(false); }} className="w-full text-left p-3 rounded-lg glass-btn">Documentation</button>
-                </div>
-            </Modal>
-            )}
+            <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} commands={commandPaletteCommands} />
+            <MoreMenu isOpen={isMoreOpen} onClose={() => setMoreOpen(false)} tools={moreMenuTools} />
             {isSaveModalOpen && (
             <Modal title="Save Matrix to Library" isOpen={isSaveModalOpen} onClose={() => setSaveModalOpen(false)}>
                 <form onSubmit={(e) => { e.preventDefault(); handleSaveToLibrary(e.currentTarget.matrixName.value, e.currentTarget.folderName.value, e.currentTarget.tags.value); }} className="space-y-4">
@@ -3333,6 +3543,7 @@ const App: React.FC = () => {
                         )}
                         {advancedToolsCategory === 'math' && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => { setExactAlgebraOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Exact Spaces & Maps</button>
                                 <button onClick={() => { setIterativeOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Iterative Solvers</button>
                                 <button onClick={() => { setJordanOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Jordan Form</button>
                                 <button onClick={() => { setMatrixFunctionsOpen(true); setToolsOpen(false); setAdvancedToolsCategory('overview'); }} className="py-2 px-3 rounded-lg glass-btn">Matrix Functions</button>
@@ -3356,6 +3567,17 @@ const App: React.FC = () => {
                         )}
                     </div>
                 )}
+            </Modal>
+            )}
+            {isExactAlgebraOpen && (
+            <Modal title="Exact Algebra Studio" isOpen={isExactAlgebraOpen} onClose={() => setExactAlgebraOpen(false)}>
+                <ExactAlgebraStudio
+                    matrixOptions={getMatrixOptions()}
+                    resolveMatrixByKey={resolveMatrixByKey}
+                    onUseMatrix={handleUseResult}
+                    onSaveMatrix={(matrix, _preferredName) => handleOpenSaveModal(matrix, matrix.length, matrix[0]?.length || 1)}
+                    onError={reportError}
+                />
             </Modal>
             )}
             {isPresetsOpen && (

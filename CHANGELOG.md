@@ -27,6 +27,31 @@ Source of truth:
 
 ### Security
 
+## 1.3.0 - 2026-03-02
+### Added
+- Stream A: Added modular shell routing contracts (`FeatureRoute`, `ToolDescriptor`, `ResultAction`) and registry-driven top navigation with Library as a visible fourth primary destination.
+- Stream A: Added command palette and keyboard shortcut scaffold, plus a result-shell wrapper contract for normalized output section ordering.
+- Stream B: Added first-class local Library contracts/state for matrices, vectors, vector sets, bases, linear maps, and workspaces.
+- Stream B: Added versioned `.mmatrix` workspace codec (schema v3), migration-safe decoding for legacy payloads, recovery-copy helpers, and report metadata utilities.
+- Stream C: Added an exact algebra studio with workflows for vector arithmetic, matrix-vector products, span/independence/basis operations, subspace operations, and linear maps.
+- Stream D: Added numeric analyze modules for decomposition/eigen workflows, orthogonality/least-squares workflows, iterative solver wrappers, and canonical-form descriptors.
+
+### Changed
+- Stream A: Refactored app shell seams into `app/shell`, `app/routes`, and `app/registry` modules while preserving the existing Matrix Master UX posture.
+- Stream B: Extended shared workspace/library typing contracts to support additive local-persistence integration without replacing existing save/load behavior.
+- Stream D: Introduced coherent Analyze category/advanced registries for improved discoverability and cleaner tool organization.
+- Documentation: Updated `matrixmaster_codex_cloud_update_plan_v2.md` and `matrixmaster_codex_cloud_runbook_v2.md` to Codex CLI language with explicit 4-sub-agent mapping.
+
+### Fixed
+- Integration: Fixed JSX rendering parse failure in `features/maps/MapsSurface.tsx` for the basis-change label text.
+- Build: Fixed `npm run electron:build` TypeScript type-library resolution by setting explicit Node types in `electron/tsconfig.json`.
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.2.2 - 2026-02-09
 ### Added
 
