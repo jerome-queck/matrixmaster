@@ -27,6 +27,28 @@ Source of truth:
 
 ### Security
 
+## 1.4.0 - 2026-04-19
+### Added
+- Added the "Lab" theme — a warm parchment / inkwell-red aesthetic redesign handed off from Claude Design. Introduces full `--lab-*` design tokens (parchment surfaces, inkwell red / lab green / ink blue accents, Newsreader serif display + JetBrains Mono matrices + Caveat handwritten accents) and makes it the default visual direction.
+- Added a macOS-style window chrome shell around the workspace (red/yellow/green traffic lights, centered `Matrix Master — Workspace.mmatrix` title) rendered on a dark radial-gradient "desktop" backdrop.
+- Added a reusable hand-drawn `Bracket` SVG primitive (`components/lab/Bracket.tsx`) — the signature Lab aesthetic for matrix rendering.
+- Added a new Lab-branded app icon (`assets/app-icon.png`, 512×512) and wired it as the site favicon.
+- Added Google Fonts loading for Newsreader, JetBrains Mono, and Caveat in the Vite HTML template.
+
+### Changed
+- Default theme is now `lab`; default density is `compact` (previously `dark` / `comfortable`). Legacy stored `dark` / `light` values auto-migrate to `lab` on load so existing users flip to the new aesthetic without action.
+- Restyled top-nav pill bar, panels, buttons, and inputs to use Lab tokens when `data-theme="lab"` is active. Retrofits legacy `--accent`, `--glass-*`, `.glass-btn-primary`, `.aurora-title`, and Tailwind blue/indigo utility classes into the parchment/inkwell-red palette so the whole surface inherits the new theme without rewriting each component.
+- Hid the aurora blue radial-gradient wash and removed the residual blue gradient on `.tab.active` when in Lab theme.
+- Dev server, `wait-on` script, and Electron `VITE_DEV_SERVER_URL` default moved from port `3000` → `5180` to avoid collisions with other local services on 3000.
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+### Security
+
 ## 1.3.1 - 2026-03-02
 ### Added
 - Added route-bootstrap registration for feature routes so extension surfaces are wired into top-level navigation/command discovery without direct `App.tsx` edits.
