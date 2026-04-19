@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const isDev = process.env.ELECTRON_DEV === '1' || !app.isPackaged;
-const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
+const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5180';
 
 let mainWindow: BrowserWindow | null = null;
 let lastCheckedAt: string | null = null;

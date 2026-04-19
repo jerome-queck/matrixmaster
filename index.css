@@ -770,3 +770,459 @@ button:active {
         display: none !important;
     }
 }
+
+/* ============================================================
+ * Lab theme — Matrix Master redesign
+ * Warm parchment · handwritten math · inkwell red accent
+ * ============================================================ */
+
+html[data-theme="lab"],
+body[data-theme="lab"] {
+    /* Surfaces */
+    --lab-bg: #f2ead9;
+    --lab-bg-2: #eadfc6;
+    --lab-paper: #fbf6e9;
+    --lab-chrome: #e8dcc0;
+    --lab-chrome-2: #dccba3;
+
+    /* Ink */
+    --lab-ink: #231d16;
+    --lab-ink-2: #4a3f30;
+    --lab-muted: #8a7c62;
+
+    /* Lines */
+    --lab-line: #c8b894;
+    --lab-line-2: #d9cca7;
+
+    /* Accents */
+    --lab-accent: #c63f2a;
+    --lab-accent-2: #1f6b4a;
+    --lab-accent-3: #2d4ea3;
+
+    /* States */
+    --lab-hover: rgba(35, 29, 22, 0.06);
+    --lab-select: rgba(198, 63, 42, 0.12);
+
+    /* Radii / shadow */
+    --lab-radius: 14px;
+    --lab-radius-sm: 8px;
+    --lab-shadow: 0 1px 0 rgba(35, 29, 22, 0.12),
+        0 18px 30px -18px rgba(74, 63, 48, 0.35);
+
+    /* Fonts */
+    --lab-font-sans: "Newsreader", "Iowan Old Style", "Palatino", Georgia, serif;
+    --lab-font-display: "Newsreader", "Playfair Display", Georgia, serif;
+    --lab-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+    --lab-font-hand: "Caveat", "Kalam", cursive;
+
+    /* Retrofit legacy tokens so existing components adopt Lab */
+    --bg-color: var(--lab-bg);
+    --bg-ink: var(--lab-paper);
+    --text-color: var(--lab-ink);
+    --primary-text-color: var(--lab-accent);
+    --secondary-text-color: var(--lab-muted);
+    --border-color: var(--lab-line);
+    --card-bg-start: var(--lab-paper);
+    --card-bg-end: var(--lab-paper);
+    --button-bg: var(--lab-accent);
+    --button-text: var(--lab-paper);
+    --input-bg: var(--lab-paper);
+    --glass-bg: var(--lab-paper);
+    --glass-border: var(--lab-line);
+    --glass-highlight: rgba(255, 255, 255, 0.6);
+    --accent: var(--lab-accent);
+    --accent-strong: var(--lab-accent);
+    --accent-soft: var(--lab-select);
+    --shadow-color: rgba(35, 29, 22, 0.12);
+    --scrollbar-track: var(--lab-bg-2);
+    --scrollbar-thumb: var(--lab-line);
+    --scrollbar-thumb-hover: var(--lab-muted);
+}
+
+html[data-theme="lab"] body {
+    background-color: var(--lab-bg);
+    background-image: none;
+    color: var(--lab-ink);
+    font-family: var(--lab-font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+html[data-theme="lab"] h1,
+html[data-theme="lab"] h2,
+html[data-theme="lab"] h3,
+html[data-theme="lab"] .aurora-title {
+    font-family: var(--lab-font-display);
+    font-style: italic;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: var(--lab-ink);
+    text-shadow: none;
+}
+
+/* Panels / cards / glass → parchment */
+html[data-theme="lab"] .glass-panel,
+html[data-theme="lab"] .glass-card,
+html[data-theme="lab"] .glass-shell,
+html[data-theme="lab"] .ios-action-card,
+html[data-theme="lab"] .header-panel {
+    background: var(--lab-paper);
+    border: 1px solid var(--lab-line);
+    border-radius: var(--lab-radius);
+    box-shadow: var(--lab-shadow);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: var(--lab-ink);
+}
+
+html[data-theme="lab"] .glass-btn {
+    background: var(--lab-paper);
+    border: 1px solid var(--lab-line);
+    color: var(--lab-ink);
+    border-radius: var(--lab-radius-sm);
+    font-family: var(--lab-font-sans);
+    transition: transform 120ms ease, background 160ms ease;
+}
+
+html[data-theme="lab"] .glass-btn:hover {
+    background: var(--lab-bg-2);
+}
+
+html[data-theme="lab"] .glass-btn:active {
+    transform: scale(0.98);
+}
+
+/* Top-nav pill bar: Solve / Operate / Analyze */
+html[data-theme="lab"] .glass-tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--lab-radius-sm);
+    color: var(--lab-ink-2);
+    font-family: var(--lab-font-sans);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.01em;
+}
+
+html[data-theme="lab"] .glass-tab:hover {
+    background: var(--lab-hover);
+    color: var(--lab-ink);
+}
+
+html[data-theme="lab"] .tab.active,
+html[data-theme="lab"] .glass-tab.active {
+    background: var(--lab-select);
+    color: var(--lab-ink);
+    border-left: 3px solid var(--lab-accent);
+    box-shadow: none;
+    padding-left: calc(0.5rem - 3px);
+}
+
+/* Inputs */
+html[data-theme="lab"] .glass-input,
+html[data-theme="lab"] input[type="text"],
+html[data-theme="lab"] input[type="number"],
+html[data-theme="lab"] select,
+html[data-theme="lab"] textarea {
+    background-color: var(--lab-paper) !important;
+    border: 1px solid var(--lab-line) !important;
+    color: var(--lab-ink) !important;
+    font-family: var(--lab-font-sans);
+    border-radius: var(--lab-radius-sm);
+}
+
+html[data-theme="lab"] input[type="number"],
+html[data-theme="lab"] .mm-mono {
+    font-family: var(--lab-font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+html[data-theme="lab"] .text-gray-500,
+html[data-theme="lab"] .text-gray-400,
+html[data-theme="lab"] .text-gray-300,
+html[data-theme="lab"] .text-gray-200,
+html[data-theme="lab"] .text-gray-600,
+html[data-theme="lab"] .text-gray-700,
+html[data-theme="lab"] .text-slate-300,
+html[data-theme="lab"] .text-slate-200,
+html[data-theme="lab"] .text-slate-400,
+html[data-theme="lab"] .text-slate-500,
+html[data-theme="lab"] .text-slate-600,
+html[data-theme="lab"] .text-slate-700,
+html[data-theme="lab"] .text-secondary {
+    color: var(--lab-muted) !important;
+}
+
+html[data-theme="lab"] .text-primary {
+    color: var(--lab-accent) !important;
+}
+
+html[data-theme="lab"] .text-ink {
+    color: var(--lab-ink) !important;
+}
+
+/* Paper grain overlay on main workspace */
+html[data-theme="lab"] body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.35;
+    z-index: 0;
+    background-image: radial-gradient(rgba(74, 63, 48, 0.08) 1px, transparent 1px);
+    background-size: 4px 4px;
+    mix-blend-mode: multiply;
+}
+
+html[data-theme="lab"] #root {
+    position: relative;
+    z-index: 1;
+}
+
+html[data-theme="lab"] ::selection {
+    background: var(--lab-select);
+    color: var(--lab-ink);
+}
+
+/* ============================================================
+ * macOS window chrome — desk "frame" around the workspace
+ * ============================================================ */
+
+html[data-theme="lab"] body {
+    background:
+        radial-gradient(1200px 600px at 20% 0%, #3a3830 0%, #22201c 60%, #1a1815 100%);
+    min-height: 100vh;
+}
+
+.lab-desk {
+    min-height: 100vh;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.lab-window {
+    width: 100%;
+    max-width: 1600px;
+    background: var(--lab-bg);
+    border-radius: 12px;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.3),
+        0 30px 80px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    position: relative;
+}
+
+.lab-titlebar {
+    height: 34px;
+    background: var(--lab-chrome);
+    border-bottom: 1px solid var(--lab-line);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    position: relative;
+    user-select: none;
+    -webkit-app-region: drag;
+}
+
+.lab-traffic {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    -webkit-app-region: no-drag;
+}
+
+.lab-traffic-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: block;
+    border: none;
+    cursor: pointer;
+}
+
+.lab-traffic-dot.close {
+    background: #ff5f57;
+}
+.lab-traffic-dot.min {
+    background: #febc2e;
+}
+.lab-traffic-dot.max {
+    background: #28c840;
+}
+
+.lab-titlebar-title {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--lab-font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--lab-muted);
+    letter-spacing: 0.01em;
+}
+
+.lab-workspace {
+    position: relative;
+    min-height: calc(100vh - 34px - 48px);
+}
+
+/* Surface mount animation */
+@keyframes mm-slide {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+html[data-theme="lab"] main {
+    animation: mm-slide 280ms ease;
+}
+
+/* Hide aurora gradient wash */
+html[data-theme="lab"] .aurora-bg,
+html[data-theme="lab"] .aurora-layer {
+    display: none !important;
+}
+
+/* Primary buttons → inkwell red (Calculate, Save to Library, etc.) */
+html[data-theme="lab"] .glass-btn-primary {
+    background: var(--lab-accent) !important;
+    color: var(--lab-paper) !important;
+    border: 1px solid var(--lab-accent) !important;
+    box-shadow: var(--lab-shadow) !important;
+    border-radius: var(--lab-radius-sm) !important;
+    font-family: var(--lab-font-sans);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+html[data-theme="lab"] .glass-btn-primary:hover {
+    background: #b8371f !important;
+    filter: none;
+}
+
+html[data-theme="lab"] .glass-btn-primary svg,
+html[data-theme="lab"] .glass-btn-primary * {
+    color: var(--lab-paper) !important;
+}
+
+/* Danger button → deeper ink with red border */
+html[data-theme="lab"] .glass-btn-danger {
+    background: var(--lab-paper) !important;
+    color: var(--lab-accent) !important;
+    border: 1px solid var(--lab-accent) !important;
+    box-shadow: none !important;
+    font-family: var(--lab-font-sans);
+}
+
+/* Strip the residual blue gradient from `.tab.active` */
+html[data-theme="lab"] .tab.active {
+    background: var(--lab-select) !important;
+    color: var(--lab-ink) !important;
+    box-shadow: none !important;
+}
+
+/* Inline inputs — replace inset-white highlight and dark bg */
+html[data-theme="lab"] .glass-input,
+html[data-theme="lab"] input[type="text"],
+html[data-theme="lab"] input[type="number"],
+html[data-theme="lab"] select,
+html[data-theme="lab"] textarea {
+    background-color: var(--lab-paper) !important;
+    border: 1px solid var(--lab-line) !important;
+    color: var(--lab-ink) !important;
+    box-shadow: none !important;
+    border-radius: var(--lab-radius-sm) !important;
+    font-family: var(--lab-font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+html[data-theme="lab"] .glass-input:focus,
+html[data-theme="lab"] input:focus,
+html[data-theme="lab"] textarea:focus,
+html[data-theme="lab"] select:focus {
+    border-color: var(--lab-accent) !important;
+    box-shadow: 0 0 0 3px var(--lab-select) !important;
+    outline: none;
+}
+
+/* Split divider → warm line */
+html[data-theme="lab"] .split-divider {
+    background: var(--lab-line) !important;
+}
+html[data-theme="lab"] .split-divider:hover,
+html[data-theme="lab"] .split-divider.is-active {
+    background: var(--lab-accent) !important;
+}
+
+/* "Matrix Master" wordmark — solid ink, no gradient clip */
+html[data-theme="lab"] .aurora-title {
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    background-clip: initial !important;
+    color: var(--lab-ink) !important;
+    text-shadow: none !important;
+    font-family: var(--lab-font-display);
+    font-style: italic;
+    font-weight: 500;
+}
+
+/* Tailwind utility-class blues that pop up across the app */
+html[data-theme="lab"] .bg-blue-500,
+html[data-theme="lab"] .bg-blue-600,
+html[data-theme="lab"] .bg-blue-700,
+html[data-theme="lab"] .bg-indigo-500,
+html[data-theme="lab"] .bg-indigo-600,
+html[data-theme="lab"] .bg-sky-500 {
+    background-color: var(--lab-accent) !important;
+    color: var(--lab-paper) !important;
+}
+
+html[data-theme="lab"] .bg-indigo-100,
+html[data-theme="lab"] .bg-blue-100,
+html[data-theme="lab"] .bg-sky-100 {
+    background-color: var(--lab-select) !important;
+    color: var(--lab-accent) !important;
+}
+
+html[data-theme="lab"] .text-blue-500,
+html[data-theme="lab"] .text-blue-600,
+html[data-theme="lab"] .text-blue-700,
+html[data-theme="lab"] .text-indigo-500,
+html[data-theme="lab"] .text-indigo-600,
+html[data-theme="lab"] .text-indigo-700,
+html[data-theme="lab"] .text-sky-500,
+html[data-theme="lab"] .text-sky-600 {
+    color: var(--lab-accent) !important;
+}
+
+html[data-theme="lab"] .border-blue-500,
+html[data-theme="lab"] .border-blue-600,
+html[data-theme="lab"] .border-indigo-500,
+html[data-theme="lab"] .border-indigo-600 {
+    border-color: var(--lab-accent) !important;
+}
+
+html[data-theme="lab"] .ring-blue-500,
+html[data-theme="lab"] .ring-indigo-500,
+html[data-theme="lab"] .focus\:ring-blue-500:focus,
+html[data-theme="lab"] .focus\:ring-indigo-500:focus {
+    --tw-ring-color: var(--lab-accent) !important;
+}
+
+/* Info dots */
+html[data-theme="lab"] .info-dot {
+    background: var(--lab-paper) !important;
+    border: 1px solid var(--lab-line) !important;
+    color: var(--lab-muted) !important;
+    box-shadow: none !important;
+}
+html[data-theme="lab"] .info-dot:hover {
+    background: var(--lab-bg-2) !important;
+    color: var(--lab-ink) !important;
+}
+

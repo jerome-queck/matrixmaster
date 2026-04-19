@@ -459,7 +459,7 @@ const App: React.FC = () => {
     const [libraryView, setLibraryView] = useState<'list' | 'grid'>('grid');
     const [compareLeftKey, setCompareLeftKey] = useState('solver');
     const [compareRightKey, setCompareRightKey] = useState('analysis');
-    const [theme, setTheme] = useState('dark');
+    const [theme, setTheme] = useState('lab');
     const [appVersion, setAppVersion] = useState<string>('Web');
     const [latestVersion, setLatestVersion] = useState<string | null>(null);
     const [updateStatus, setUpdateStatus] = useState<{ state: string; percent?: number; message?: string; version?: string }>({ state: 'idle' });
@@ -468,7 +468,7 @@ const App: React.FC = () => {
     const [diagnostics, setDiagnostics] = useState<string[]>([]);
     const [healthError, setHealthError] = useState<string | null>(null);
     const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'info' | 'error' }>>([]);
-    const [density, setDensity] = useState('comfortable');
+    const [density, setDensity] = useState('compact');
     const [fontSize, setFontSize] = useState<FontSize>('medium');
     const [customThemeColors, setCustomThemeColors] = useState<CustomThemeColors>(defaultCustomColors);
     const [explainerState, setExplainerState] = useState({ isOpen: false, topic: '', content: '' });
@@ -658,8 +658,10 @@ const App: React.FC = () => {
         setProfileLoaded(false);
         const getItem = (key: string) => storage.getItem(profileStorageKey(profileId, key));
 
-        setTheme(getItem('theme') || 'dark');
-        setDensity(getItem('density') || 'comfortable');
+        // Matrix Master redesign ships only the "Lab" theme — ignore legacy 'dark' / 'light' values in storage.
+        const storedTheme = getItem('theme');
+        setTheme(storedTheme === 'lab' || storedTheme === 'custom' ? storedTheme : 'lab');
+        setDensity(getItem('density') || 'compact');
         setFontSize((getItem('fontSize') || 'medium') as FontSize);
         setBuilderMode((getItem('builderMode') || 'text') as BuilderMode);
         setTutorMode(getItem('tutorMode') === 'true');
