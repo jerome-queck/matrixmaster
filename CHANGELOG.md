@@ -36,6 +36,8 @@ Source of truth:
   tree.
 
 ### Security
+- Refreshed the dependency lockfile to clear npm audit vulnerabilities without
+  force upgrades.
 
 ## 1.4.0 - 2026-04-19
 ### Added
