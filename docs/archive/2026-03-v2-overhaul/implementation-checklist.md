@@ -2,8 +2,8 @@
 
 Date: 2026-03-02
 Sources:
-- `matrixmaster_codex_cloud_update_plan_v2.md`
-- `matrixmaster_codex_cloud_runbook_v2.md`
+- `./plan.md`
+- `./runbook.md`
 
 Status legend:
 - `done`

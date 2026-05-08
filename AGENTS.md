@@ -1,109 +1,82 @@
 # Repository Guidelines
 
-## Purpose & Non-Goals
-AGENTS.md is the single source of truth for how work is planned, implemented,
-tested, and released in this repository.
+AGENTS.md is the source of truth for how agents and contributors work in this
+repository. It covers workflow rules; product requirements and historical plans
+belong in `README.md` or `docs/`.
 
-Purpose:
-- Define the workflow for features, fixes, refactors, and releases.
-- Encode release-driven PR and commit discipline.
+## Project Map
 
-Non-goals:
-- Not a product spec.
-- Not an architecture deep-dive.
+- `App.tsx`, `index.tsx`, `index.html`, `index.css` - Vite/React app shell.
+- `app/` - shell, route, and registry contracts.
+- `components/` - reusable UI components.
+- `features/` - user-facing workflow surfaces.
+- `engines/` - exact and numeric math logic.
+- `services/` - domain services and worker helpers.
+- `persistence/` - local library, workspace codec, recovery, and exports.
+- `hooks/` - React hooks.
+- `types.ts`, `global.d.ts` - shared and ambient types.
+- `tests/` - calculation, persistence, and Vitest UI tests.
+- `electron/` - Electron main/preload build sources.
+- `scripts/` - verification and release helper scripts.
+- `assets/` - desktop icons and build resources.
+- `docs/` - contributor, release, user, and archived planning docs.
+- `dist/`, `electron-dist/`, `.cache/`, `node_modules/` - generated outputs.
 
-## Project Structure & Module Organization
-Top-level layout (current reality):
-- `App.tsx` main React app shell.
-- `index.tsx` entry point.
-- `index.css` global styles.
-- `index.html` Vite HTML template.
-- `components/` UI components.
-- `hooks/` React hooks.
-- `services/` domain and service logic.
-- `types.ts` shared types.
-- `global.d.ts` ambient type declarations.
-- `tests/` automated tests.
-- `electron/` Electron app entry/config.
-- `scripts/` verification and release helpers.
-- `assets/` Electron build resources (icons, etc.).
-- `metadata.json` app metadata used by the UI.
-- `postcss.config.cjs`, `tailwind.config.cjs` styling/tooling config.
-- `dist/` web build output (generated).
-- `electron-dist/` Electron build output (generated).
-- `vite.config.ts` Vite config.
-- `vitest.config.ts` Vitest config.
+## Commands
 
-Notes:
-- `tests/` includes `tests/calculation.test.ts` and a Vitest suite.
-- `electron/` contains Electron entry and build config.
-- `scripts/` hosts `verify` scripts and `check-release-artifacts.js`.
+Use scripts from `package.json`.
 
-## Build, Test, and Development Commands
-Use the repository scripts exactly as defined in `package.json`:
-- `npm run dev` — run the local Vite dev server.
-- `npm run build` — build the web bundle to `dist/`.
-- `npm run preview` — preview the production build locally.
-- `npm run test` — run all tests (`test:calc` + `test:ui`).
-- `npm run test:calc` — run calculation tests via node + ts-node.
-- `npm run test:ui` — run Vitest UI suite.
-- `npm run electron:dev` — Electron dev (Vite + main process).
-- `npm run electron:build` — build web + Electron main/preload.
-- `npm run electron:dist` — package Electron installers/artifacts.
-- `npm run verify` — run standard verification checks.
-- `npm run verify:desktop` — desktop-focused verification.
-- `npm run verify:full` — full verification battery.
-- `npm run release:check` — release gating checks (version, build, tests, electron dist, artifact check).
+- `npm run dev` - start the Vite dev server.
+- `npm run build` - build the web bundle.
+- `npm run preview` - preview the production web build.
+- `npm run test` - run calculation and Vitest UI tests.
+- `npm run test:calc` - run calculation tests.
+- `npm run test:ui` - run Vitest UI tests.
+- `npm run electron:dev` - run Electron against the dev server.
+- `npm run electron:build` - build web assets plus Electron main/preload.
+- `npm run electron:dist` - package desktop artifacts.
+- `npm run verify` - run standard web verification.
+- `npm run verify:desktop` - run desktop packaging verification.
+- `npm run verify:full` - run web and desktop verification.
+- `npm run release:check` - run the local release gate.
 
-Guidance:
-- Small changes: `npm run test`.
-- Larger behavior changes: `npm run verify`.
-- Release candidates: `npm run release:check`.
-- When rebuilding `dist/` for release, ensure the build artifacts are complete and the release checks pass before proceeding.
+More detail lives in `docs/development/testing.md` and
+`docs/development/release-process.md`.
 
-## PR Policy (Release-Driven)
-Every meaningful change gets its own PR. This includes features, fixes,
-refactors, or any behavior change.
+## Working Flow
 
-Rules:
-- Each PR targets a release intent: `patch`, `minor`, or `major`.
-- If work starts without a PR, the agent must immediately ask to create one.
-- Each PR should be scoped to a single theme.
-- Every PR must use the repository template: `.github/PULL_REQUEST_TEMPLATE.md`.
+- Use a branch for meaningful code, docs, or release work.
+- Branch names should use `codex/<short-scope>-<ticket-or-date>` unless the
+  user asks for a different name.
+- Every meaningful change should have a focused PR with release intent:
+  `patch`, `minor`, or `major`.
+- If work begins on `main` without an existing PR or branch, ask before making
+  edits.
+- Keep each PR to one theme.
+- Use `.github/PULL_REQUEST_TEMPLATE.md` for PR descriptions.
+- Update `CHANGELOG.md` under `Unreleased` for user-visible or
+  release-relevant changes. For docs-only or internal-only PRs with no release
+  note impact, state `No changelog entry` in the PR.
 
-## Branching & PR Naming
-Branch naming:
-- `codex/<short-scope>-<ticket-or-date>`
+## Commit Discipline
 
-PR title format:
-- `[vX.Y.Z] <summary>` or `[minor|patch|major] <summary>`
+- Commit completed slices separately; do not batch unrelated work.
+- Commit messages use an imperative subject, ideally 50-72 characters.
+- Include body sections for context, scope, behavior, risk, tests, and rollback.
 
-## Commit Guidelines (Detailed + Granular)
-Commit discipline exists to enable safe rollback and time travel.
+Template:
 
-Rules:
-- One logical change per commit.
-- Commit every completed feature slice (user-visible or internal milestone).
-- If a feature completes and tests pass, commit immediately.
-- Never batch unrelated changes into one commit.
-
-Commit message format:
-- Subject: 50-72 chars, imperative.
-- Body: context, scope, behavior, risk, test coverage, rollback notes.
-- Include a short "why" and "impact" in the body.
-
-Commit template:
-```
-<imperative subject (50-72 chars)>
+```text
+<imperative subject>
 
 Context:
 - Why this change is needed.
 
 Scope:
-- What files/areas are touched.
+- What files or areas are touched.
 
 Behavior:
-- What changes for users/system.
+- What changes for users or the system.
 
 Risk:
 - Known risks or edge cases.
@@ -115,91 +88,47 @@ Rollback:
 - How to revert or mitigate if needed.
 ```
 
-## Testing & Confidence Gates
-Testing levels:
-- Quick checks: `npm run test`
-- Deeper: `npm run verify` or `npm run verify:full`
-- Release candidate: `npm run release:check`
-- PR merge gate: GitHub Actions "Release Check" (macOS + Windows) must pass.
+## Testing Gates
 
-Definition of Done:
-- Appropriate tests run for the size/risk of change.
-- No build/test failures.
-- UI changes include screenshots or notes in the PR.
+- Small docs or metadata changes: run `git diff --check`.
+- Small behavior changes: run `npm run test`.
+- Broader frontend or build changes: run `npm run verify`.
+- Desktop packaging changes: run `npm run verify:desktop`.
+- Release candidates: run `npm run release:check`.
 
-When confidence gates pass, the agent should recommend:
-- Merge the PR.
-- Release the new version.
+Report any skipped check and why.
 
-## Release Management & Versioning
-Versioning:
-- Use SemVer: `major.minor.patch`.
-- Each PR must propose a version bump category.
-- `package.json` version must be updated before release.
-- Each PR must update `CHANGELOG.md` under `Unreleased`.
-- Each release compiles `Unreleased` into a new versioned entry.
- - When a new version is released, merge the PR as part of the release flow.
+## Release Rules
 
-Release checklist:
-- Bump `package.json` version.
-- Update changelog or release notes.
-- Run `npm run release:check`.
-- Clean workspace artifacts (revert `node_modules/` and `package-lock.json`, remove `.cache/`) before finalizing.
-- Run CI debug pass before finalizing release: wait for PR checks to finish, recheck status, and investigate any failures.
-- Produce both macOS and Windows artifacts before the final PR commit (`npm run electron:dist` and `npx electron-builder --win --x64 --publish=never`).
-- When a release is published, merge the PR for that version as part of the release flow.
-- Tag and publish via GitHub (if that is current process).
-- Confirm `CHANGELOG.md` `Unreleased` is empty post-release.
-- Ensure a new version section exists with the release date.
+- Use SemVer in `package.json`.
+- Each release PR declares the version bump category.
+- Before release, update `package.json` and move `CHANGELOG.md` `Unreleased`
+  entries into a dated version section.
+- `npm run release:check` is the canonical local release gate.
+- GitHub Actions "Release Check" must pass on macOS and Windows before merge.
+- Desktop release artifacts must include the required update metadata. See
+  `docs/development/release-process.md`.
+- After publishing a release, confirm `Unreleased` is empty and the released
+  version section has the actual release date.
 
-## Quality Standards (Culture Forward)
-Code quality:
+## Quality Standards
+
 - Keep functions small and focused.
-- Use clear, intention-revealing naming.
-- Minimize side effects.
-- Avoid tight coupling between UI and business logic.
+- Prefer clear names over comments.
+- Keep UI code and business logic loosely coupled.
+- Validate inputs and handle edge cases explicitly.
+- Avoid blocking the UI thread with heavy calculations.
+- Preserve keyboard navigation and use ARIA where appropriate.
+- Never commit secrets or generated dependency/build outputs.
 
-Security & safety:
-- Never commit secrets.
-- Validate inputs.
-- Handle edge cases explicitly.
+## Agent Rules
 
-Performance:
-- Guard heavy calculations.
-- Avoid blocking the UI thread.
-
-Accessibility:
-- Keyboard navigation works.
-- Use ARIA where appropriate.
-
-## Review & Documentation Practices
-PR description template:
-- Summary
-- Reasoning
-- Testing
-- Screenshots/notes (for UI changes)
-- Risk and rollback
-
-Docs/notes requirement:
-- Update README or inline docs for behavior changes.
-
-Release notes template (required in PR description):
-- Summary
-- User-facing changes
-- Breaking changes (if any)
-- Migration/upgrade steps (if any)
-- Testing (commands + results)
-- Risks/rollbacks
-- Known issues or follow-ups
-
-PR template requirement:
-- Use `.github/PULL_REQUEST_TEMPLATE.md` for every PR.
-- Ensure release notes and changelog updates are consistent.
-
-## Agent-Specific Instructions
-Required agent behavior:
-- Always ask to create a PR before starting a feature if none exists.
-- Commit after each feature slice with detailed commit messages.
-- Suggest merge + release after sufficient tests pass.
-- Each new PR must target a new version release.
-- After merging a PR, delete the remote branch.
+- Protect user changes. Do not revert work you did not make unless the user
+  explicitly asks.
+- Follow existing project patterns before introducing new structure.
+- Keep generated files out of commits unless a release process explicitly needs
+  them.
+- For UI changes, include screenshot notes or recordings in the PR when useful.
+- When tests or builds fail, report the command and failure clearly before
+  changing direction.
+- When confidence gates pass, recommend merge and release when appropriate.
