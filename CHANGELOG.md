@@ -5,25 +5,35 @@ Purpose:
 - Ensure PRs map cleanly to release notes.
 
 Update rules:
-- Every PR must update `Unreleased` with bullet(s) in the right section.
+- Every user-visible or release-relevant PR must update `Unreleased` with
+  bullet(s) in the right section.
+- Docs-only or internal-only PRs with no release-note impact may state
+  `No changelog entry` in the PR.
 - On release, move `Unreleased` entries into a new version section.
 - Use the actual release date (YYYY-MM-DD).
-- Internal refactors should note "no user-visible changes" under `Changed`.
 
 Source of truth:
-- PR descriptions and release notes drive entries here.
-- Use `.github/PULL_REQUEST_TEMPLATE.md` to keep notes consistent.
+- Release notes drive entries here.
 
 ## Unreleased
 ### Added
 
 ### Changed
+- Reorganized repository documentation and contributor instructions under
+  `docs/`, `README.md`, and `AGENTS.md` with no app behavior changes.
+- Standardized development and release verification scripts so local tests,
+  desktop packaging, release metadata checks, and CI artifact builds follow the
+  same command flow.
 
 ### Fixed
 
 ### Deprecated
 
 ### Removed
+- Removed tracked generated `node_modules/` files and a duplicate
+  `patch-package` patch from version control.
+- Removed stale internal Superpowers planning artifacts from the active docs
+  tree.
 
 ### Security
 
@@ -84,7 +94,7 @@ Source of truth:
 - Stream A: Refactored app shell seams into `app/shell`, `app/routes`, and `app/registry` modules while preserving the existing Matrix Master UX posture.
 - Stream B: Extended shared workspace/library typing contracts to support additive local-persistence integration without replacing existing save/load behavior.
 - Stream D: Introduced coherent Analyze category/advanced registries for improved discoverability and cleaner tool organization.
-- Documentation: Updated `matrixmaster_codex_cloud_update_plan_v2.md` and `matrixmaster_codex_cloud_runbook_v2.md` to Codex CLI language with explicit 4-sub-agent mapping.
+- Documentation: Updated `docs/archive/2026-03-v2-overhaul/plan.md` and `docs/archive/2026-03-v2-overhaul/runbook.md` to Codex CLI language with explicit 4-sub-agent mapping.
 
 ### Fixed
 - Integration: Fixed JSX rendering parse failure in `features/maps/MapsSurface.tsx` for the basis-change label text.

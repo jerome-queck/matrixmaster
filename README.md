@@ -1,101 +1,85 @@
 # Matrix Master
 
-Matrix Master is an offline-first linear algebra workspace for numeric and symbolic computation. It runs fully offline, stores data locally, and supports desktop packaging for macOS and Windows.
+Matrix Master is an offline-first linear algebra workspace for numeric and
+symbolic computation. It runs fully locally, stores workspace data on the
+machine, and packages as a desktop app for macOS and Windows.
 
 ## Feature Overview
 
-### Core-First Interface
-- **Primary workflows only** — `System Solver`, `Matrix Operations`, and `Analysis` are the default top-level experience.
-- **Focused actions** — Calculate/Analyze, Reset, and matrix-level Save/Load are prioritized for first-run clarity.
-- **More menu** — Secondary actions (`Advanced Tools`, `History`, `Export / Import`, `Settings`, `Documentation`) are grouped in one place.
+### Core Workflows
 
-### Core Solvers
-- **System Solver** — Row-reduction with step-by-step elimination.
-- **Matrix Operations** — Evaluate expressions like `A * B`, `A^2`, `(A + B) * C` and more.
-- **Analysis** — Rank, trace, LU/QR/SVD, eigenvalues/vectors, and related diagnostics.
+- **System Solver** - row-reduction with step-by-step elimination.
+- **Matrix Operations** - expressions such as `A * B`, `A^2`, and
+  `(A + B) * C`.
+- **Analysis** - rank, trace, decompositions, eigen workflows, and diagnostics.
+- **Library** - local workspace and saved-object management.
 
 ### Advanced Tools
-- **Advanced Tools hub** — Progressive disclosure categories for Data & Sharing, Study & Practice, Specialist Math, and Workspace Utilities.
-- **Iterative Solvers** — Jacobi, Gauss–Seidel, CG, GMRES with preconditioning.
-- **Symbolic Simplifier** — Rule-by-rule algebra cleanup.
-- **Batch Runner** — Run expressions or analysis across saved matrices.
-- **Sparse Matrix View** — CSR/CSC representations.
 
-### Productivity
-- **Project Versions** — Save/restore snapshots of your workspace.
-- **History** — Time-based entries for previous runs.
-- **Tutor Mode** — Guided explanations.
+- Exact algebra workflows for vectors, bases, subspaces, and linear maps.
+- Numeric workflows for LU/QR/SVD, orthogonality, least squares, iterative
+  solvers, sparse views, and related analysis tools.
+- Report, export, clipboard, and `.mmatrix` workspace flows.
 
-### Export & Sharing
-- **CSV / LaTeX / JSON** export for matrices.
-- **Clipboard** copy in CSV / LaTeX / JSON.
-- **Share files** (`.mmatrix`) to transfer full workspace state.
-- **Steps export**: Markdown + LaTeX, plus LaTeX-only copy/export for full workings.
-- **Copy LaTeX on results** — one-click copy on displayed steps and matrices.
+### Desktop App
 
-### Desktop App (Electron)
-- **macOS + Windows** builds.
-- **Auto-updates** via GitHub Releases.
-- **Update center** in Settings with status, progress, and manual controls.
-- **Update toast** when a new release is available.
+- macOS and Windows packaging through Electron.
+- Local-first operation with optional update checks through GitHub Releases.
+- Update status and controls in the desktop settings surface.
 
 ## Requirements
-- Node.js 18+ (recommended)
-- npm
 
-## Quick Start (Web)
+- Node.js 22.12+.
+- npm.
+
+## Quick Start
+
 ```bash
 npm install
 npm run dev
 ```
-Open the dev URL printed by Vite.
 
-## Desktop App
+Open the local URL printed by Vite.
 
-### Development
+## Desktop
+
 ```bash
 npm run electron:dev
-```
-
-### Build (packaged installers)
-```bash
 npm run electron:dist
 ```
-Artifacts are written to `dist/`.
 
-### Release checklist
-- Run: `npm run release:check`
-- Verify macOS artifacts: `.dmg`, `.zip`, `.blockmap`, `latest-mac.yml`
-- Verify Windows artifacts: `Setup.exe`, `.zip`, `.blockmap`
-- Upload artifacts to GitHub Release and confirm auto-update works
+More desktop details live in [docs/user/desktop.md](docs/user/desktop.md).
 
-### Windows build (from macOS)
-```bash
-npx electron-builder --win --x64 --publish=never
-```
+## Common Scripts
 
-## Scripts
-- `npm run dev` — Vite dev server
-- `npm run build` — production web build
-- `npm run preview` — preview web build
-- `npm test` — calculation tests
-- `npm run electron:dev` — Electron dev (Vite + main process)
-- `npm run electron:dist` — packaged desktop installers
+- `npm run dev` - start the Vite dev server.
+- `npm run build` - build the web bundle.
+- `npm run preview` - preview the production web build.
+- `npm run test` - run calculation and Vitest tests.
+- `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
+- `npm run verify` - run the standard verification gate.
+- `npm run verify:desktop` - run desktop packaging verification.
+- `npm run release:check` - run the release-candidate gate.
 
-## Project Structure
-- `App.tsx` — main UI and orchestration
-- `components/` — UI building blocks
-- `services/` — math + operations
-- `tests/` — calculation tests
-- `electron/` — Electron main/preload
+See [docs/development/testing.md](docs/development/testing.md) for the complete
+command guide.
+
+## Documentation
+
+- [Documentation index](docs/index.md)
+- [Repository guidelines](AGENTS.md)
+- [Project structure](docs/development/project-structure.md)
+- [Testing and verification](docs/development/testing.md)
+- [Release process](docs/development/release-process.md)
+- [Troubleshooting](docs/user/troubleshooting.md)
+- [Changelog](CHANGELOG.md)
 
 ## Offline Behavior
-All calculations and exports run locally. The only network call in desktop builds is the optional update check against GitHub Releases.
 
-## Troubleshooting
-- macOS builds are unsigned; Gatekeeper may warn on first launch.
-- Windows builds are unsigned; SmartScreen may warn on first launch.
-- If exports appear empty, allow file downloads in your browser.
+Calculations, exports, saved objects, and `.mmatrix` workspaces are handled
+locally. The only expected network call in desktop builds is the optional update
+check against GitHub Releases.
 
 ## License
+
 TBD

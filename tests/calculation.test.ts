@@ -14,9 +14,9 @@ import {
   numericEigenSymmetric,
   formatSymbolicFractionToLatex,
   parseInput,
-} from '../services/matrixService.ts';
-import { buildStepsBundle } from '../services/exportService.ts';
-import type { CalculationResult, RowOperationStep } from '../types.ts';
+} from '../services/matrixService';
+import { buildStepsBundle } from '../services/exportService';
+import type { CalculationResult, RowOperationStep } from '../types';
 
 type Matrix = number[][];
 

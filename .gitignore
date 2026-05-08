@@ -1,8 +1,7 @@
 node_modules/
-node_modules/**/.DS_Store
-node_modules/**/.package-lock.json
+**/.DS_Store
 dist/
 electron-dist/
 .cache/
-.DS_Store
 .codex/
+.claude/
