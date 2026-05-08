@@ -21,6 +21,9 @@ Source of truth:
 ### Changed
 - Reorganized repository documentation and contributor instructions under
   `docs/`, `README.md`, and `AGENTS.md` with no app behavior changes.
+- Standardized development and release verification scripts so local tests,
+  desktop packaging, release metadata checks, and CI artifact builds follow the
+  same command flow.
 
 ### Fixed
 
@@ -29,6 +32,8 @@ Source of truth:
 ### Removed
 - Removed tracked generated `node_modules/` files and a duplicate
   `patch-package` patch from version control.
+- Removed stale internal Superpowers planning artifacts from the active docs
+  tree.
 
 ### Security
 

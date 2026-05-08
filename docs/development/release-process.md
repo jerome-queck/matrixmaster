@@ -8,8 +8,10 @@ changelog.
 
 1. Confirm the PR scope is one theme.
 2. Choose the SemVer bump category.
-3. Update `package.json` for release PRs.
-4. Update `CHANGELOG.md` under `Unreleased`.
+3. Update `package.json` and `package-lock.json` for release PRs.
+4. Update `CHANGELOG.md` under `Unreleased` for user-visible or
+   release-relevant changes. For docs-only or internal-only PRs with no release
+   note impact, state `No changelog entry` in the PR.
 5. Run the appropriate verification gate:
    - normal PR: `npm run test` or `npm run verify`
    - desktop/build PR: `npm run verify:desktop`
@@ -23,9 +25,9 @@ changelog.
 
 ## Release Candidate Gate
 
-`npm run release:check` is the canonical local release gate. It checks that the
-version is set, builds the web bundle, runs tests, packages Electron artifacts,
-and verifies update metadata.
+`npm run release:check` is the canonical local release gate. It checks that
+`package.json` and `package-lock.json` agree on the version, runs tests,
+packages Electron artifacts, and verifies update metadata.
 
 GitHub Actions also runs `Release Check` on macOS and Windows for PRs. Treat CI
 as the merge gate for release candidates because desktop packaging can differ by

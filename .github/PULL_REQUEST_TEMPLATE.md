@@ -4,7 +4,7 @@ Describe the change in 1-3 sentences.
 
 # Release Intent
 
-- Target version bump: `patch` | `minor` | `major`
+- Target version bump: `none` | `patch` | `minor` | `major`
 - Proposed version: `vX.Y.Z` or `No version bump`
 - Rationale:
 

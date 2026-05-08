@@ -29,7 +29,7 @@ machine, and packages as a desktop app for macOS and Windows.
 
 ## Requirements
 
-- Node.js 18+.
+- Node.js 22.12+.
 - npm.
 
 ## Quick Start
@@ -55,7 +55,8 @@ More desktop details live in [docs/user/desktop.md](docs/user/desktop.md).
 - `npm run dev` - start the Vite dev server.
 - `npm run build` - build the web bundle.
 - `npm run preview` - preview the production web build.
-- `npm run test` - run calculation and UI tests.
+- `npm run test` - run calculation and Vitest tests.
+- `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
 - `npm run verify` - run the standard verification gate.
 - `npm run verify:desktop` - run desktop packaging verification.
 - `npm run release:check` - run the release-candidate gate.

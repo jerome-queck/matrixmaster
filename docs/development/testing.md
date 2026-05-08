@@ -16,19 +16,20 @@ Use the scripts in `package.json`. The short version is:
 
 ## Test Commands
 
-- `npm run test` - run `test:calc` and `test:ui`.
+- `npm run test` - run `test:calc` and `test:vitest`.
 - `npm run test:calc` - run calculation tests through Node and `ts-node`.
-- `npm run test:ui` - run the Vitest suite.
+- `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
+- `npm run test:ui` - compatibility alias for `test:vitest`.
 
 ## Verification Commands
 
-- `npm run verify` - run tests, build the web bundle, and check the package
-  version is set.
-- `npm run verify:desktop` - build web and Electron sources, package desktop
-  artifacts, and check update metadata.
+- `npm run verify` - check package version metadata, run tests, and build the
+  web bundle.
+- `npm run verify:desktop` - package desktop artifacts through Electron and
+  check update metadata.
 - `npm run verify:full` - run both standard and desktop verification.
-- `npm run release:check` - run version check, web build, tests, Electron
-  packaging, and release artifact checks.
+- `npm run release:check` - check package and lockfile version metadata, run
+  tests, package Electron artifacts, and check release metadata.
 
 ## Choosing A Gate
 

@@ -44,6 +44,13 @@ desktop packaging.
 - `.github/workflows/` - release check and artifact build workflows.
 - `patches/` - `patch-package` patches applied after install.
 
+## Export Boundaries
+
+Use `index.ts` barrel files only for stable domain boundaries such as
+`persistence/` or numeric engine exports. Within a domain, prefer direct imports
+from the file that owns the behavior. Do not add barrels to every folder just
+for symmetry.
+
 ## Generated Outputs
 
 These should stay out of version control:

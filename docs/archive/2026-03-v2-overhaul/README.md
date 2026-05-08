@@ -7,5 +7,6 @@ They are historical context, not current contributor workflow instructions.
 - [Runbook](runbook.md)
 - [Implementation checklist](implementation-checklist.md)
 
-For current workflow rules, use [AGENTS.md](../../../AGENTS.md). For release and
-testing details, use [docs/development](../../development/).
+For current workflow rules, use [AGENTS.md](../../../AGENTS.md). For testing
+details, use [Testing and verification](../../development/testing.md). For
+release details, use [Release process](../../development/release-process.md).

@@ -29,9 +29,10 @@ Use scripts from `package.json`.
 - `npm run dev` - start the Vite dev server.
 - `npm run build` - build the web bundle.
 - `npm run preview` - preview the production web build.
-- `npm run test` - run calculation and Vitest UI tests.
+- `npm run test` - run calculation and Vitest tests.
 - `npm run test:calc` - run calculation tests.
-- `npm run test:ui` - run Vitest UI tests.
+- `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
+- `npm run test:ui` - compatibility alias for `test:vitest`.
 - `npm run electron:dev` - run Electron against the dev server.
 - `npm run electron:build` - build web assets plus Electron main/preload.
 - `npm run electron:dist` - package desktop artifacts.
