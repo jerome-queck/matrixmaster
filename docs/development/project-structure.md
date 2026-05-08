@@ -16,10 +16,12 @@ desktop packaging.
 
 ## Application Modules
 
-- `app/` - route registry, shell navigation, command palette, and result shell.
+- `app/` - core primary route ownership, route registry, shell navigation,
+  command palette, and result shell.
 - `components/` - reusable UI components and view-level building blocks.
-- `features/` - feature-specific routes and surfaces for solve, operate,
-  analyze, library, spaces, maps, orthogonality, and advanced tools.
+- `features/` - feature surfaces for solve, operate, analyze, library, spaces,
+  maps, orthogonality, and advanced tools. Do not redeclare core primary
+  navigation routes from `app/routes/coreRoutes.ts`.
 - `hooks/` - React hooks for workers, batch flows, and delayed state.
 - `services/` - matrix service logic, exports, clipboard, storage, hashing, LRU,
   async dedupe, and worker entry points.

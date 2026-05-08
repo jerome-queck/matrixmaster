@@ -19,6 +19,8 @@ Source of truth:
 ### Added
 
 ### Changed
+- Consolidated primary route ownership into the core route registry while
+  preserving existing navigation and command behavior.
 - Reorganized repository documentation and contributor instructions under
   `docs/`, `README.md`, and `AGENTS.md` with no app behavior changes.
 - Standardized development and release verification scripts so local tests,
