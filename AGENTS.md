@@ -15,7 +15,7 @@ belong in `README.md` or `docs/`.
 - `persistence/` - local library, workspace codec, recovery, and exports.
 - `hooks/` - React hooks.
 - `types.ts`, `global.d.ts` - shared and ambient types.
-- `tests/` - calculation, persistence, and Vitest UI tests.
+- `tests/` - calculation, persistence, Vitest UI tests, and Playwright e2e tests.
 - `electron/` - Electron main/preload build sources.
 - `scripts/` - verification and release helper scripts.
 - `assets/` - desktop icons and build resources.
@@ -33,6 +33,7 @@ Use scripts from `package.json`.
 - `npm run test:calc` - run calculation tests.
 - `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
 - `npm run test:ui` - compatibility alias for `test:vitest`.
+- `npm run test:e2e` - run Playwright browser workflow tests.
 - `npm run electron:dev` - run Electron against the dev server.
 - `npm run electron:build` - build web assets plus Electron main/preload.
 - `npm run electron:dist` - package desktop artifacts.

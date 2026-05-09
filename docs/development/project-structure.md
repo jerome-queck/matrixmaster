@@ -40,7 +40,8 @@ desktop packaging.
 
 - `electron/` - Electron main and preload sources plus Electron TypeScript
   config.
-- `tests/` - calculation, persistence, service, hook, and React UI tests.
+- `tests/` - calculation, persistence, service, hook, React UI, and Playwright
+  e2e tests.
 - `scripts/` - verification scripts and release artifact checks.
 - `assets/` - desktop app icons and build resources.
 - `.github/workflows/` - release check and artifact build workflows.

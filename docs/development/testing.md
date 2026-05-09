@@ -24,6 +24,28 @@ Use the scripts in `package.json`. The short version is:
 - `npm run test:calc` - run calculation tests through Node and `ts-node`.
 - `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
 - `npm run test:ui` - compatibility alias for `test:vitest`.
+- `npm run test:e2e` - run Playwright browser workflow tests against the Vite
+  app on a strict local port.
+
+## Browser Workflow Tests
+
+`npm run test:e2e` starts Vite on `127.0.0.1:7429` with `--strictPort` and
+runs Playwright tests in `tests/e2e/`. These tests are assertion-driven smoke
+and workflow checks, not pixel-perfect snapshot baselines. They cover app-shell
+rendering, primary route navigation, solver calculation, matrix operations,
+analysis, command palette navigation, library loaded state, export/import
+controls, and a narrow mobile viewport smoke check.
+
+On a fresh machine, install the Chromium browser cache once before the first
+local run:
+
+```bash
+npx playwright install chromium
+```
+
+Playwright screenshots, videos, traces, and HTML reports are generated only as
+diagnostic artifacts on failure or retry. Keep `test-results/`,
+`playwright-report/`, and `blob-report/` out of commits.
 
 ## Verification Commands
 
@@ -39,7 +61,8 @@ Use the scripts in `package.json`. The short version is:
 
 - Docs-only changes: `git diff --check`.
 - Small code changes: `npm run test`.
-- Shared behavior, routing, exports, or UI changes: `npm run verify`.
+- Shared behavior, routing, exports, or UI changes: `npm run verify`; add
+  `npm run test:e2e` when browser workflow confidence matters.
 - Electron, patch-package, build output, or artifact changes:
   `npm run verify:desktop`.
 - Release candidate: `npm run release:check`.
