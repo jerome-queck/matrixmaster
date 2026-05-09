@@ -17,7 +17,7 @@ belong in `README.md` or `docs/`.
 - `types.ts`, `global.d.ts` - shared and ambient types.
 - `tests/` - calculation, persistence, Vitest UI tests, and Playwright e2e tests.
 - `electron/` - Electron main/preload build sources.
-- `scripts/` - verification and release helper scripts.
+- `scripts/` - normalized test workflow runner plus release helper scripts.
 - `assets/` - desktop icons and build resources.
 - `docs/` - contributor, release, user, and archived planning docs.
 - `dist/`, `electron-dist/`, `.cache/`, `node_modules/` - generated outputs.
@@ -29,18 +29,20 @@ Use scripts from `package.json`.
 - `npm run dev` - start the Vite dev server.
 - `npm run build` - build the web bundle.
 - `npm run preview` - preview the production web build.
-- `npm run test` - run calculation and Vitest tests.
+- `npm run test` - run the fast unit profile: calculation and Vitest tests.
 - `npm run test:calc` - run calculation tests.
 - `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
 - `npm run test:ui` - compatibility alias for `test:vitest`.
 - `npm run test:e2e` - run Playwright browser workflow tests.
+- `npm run test:all` - run calculation, Vitest, and Playwright tests.
+- `npm run verify` - run normalized web verification: clean, hygiene,
+  version, unit tests, browser tests, and build.
+- `npm run verify:desktop` - run desktop packaging verification.
+- `npm run verify:full` - run web, browser, and desktop verification.
+- `npm run release:check` - run the local release gate.
 - `npm run electron:dev` - run Electron against the dev server.
 - `npm run electron:build` - build web assets plus Electron main/preload.
 - `npm run electron:dist` - package desktop artifacts.
-- `npm run verify` - run standard web verification.
-- `npm run verify:desktop` - run desktop packaging verification.
-- `npm run verify:full` - run web and desktop verification.
-- `npm run release:check` - run the local release gate.
 
 More detail lives in `docs/development/testing.md` and
 `docs/development/release-process.md`.

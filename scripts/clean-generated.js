@@ -4,7 +4,14 @@ const fs = require('fs');
 const path = require('path');
 
 const root = process.cwd();
-const generatedDirectories = ['dist', 'electron-dist', '.cache'];
+const generatedDirectories = [
+  'dist',
+  'electron-dist',
+  '.cache',
+  'test-results',
+  'playwright-report',
+  'blob-report',
+];
 
 for (const directory of generatedDirectories) {
   const target = path.join(root, directory);

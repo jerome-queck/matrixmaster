@@ -29,7 +29,7 @@ test.afterEach(async ({ page }) => {
 });
 
 const openApp = async (page: Page) => {
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.addStyleTag({
     content: `
       *, *::before, *::after {
@@ -100,7 +100,7 @@ test.describe('Matrix Master core browser workflows', () => {
     await expectNoHorizontalPageOverflow(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: 'Matrix Master' })).toBeVisible();
     await expect(mainPanel(page).getByRole('heading', { name: 'System Type' })).toBeVisible();
     await expect(page.getByRole('button', { name: /^analysis$/i })).toBeVisible();

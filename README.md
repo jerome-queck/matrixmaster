@@ -55,10 +55,11 @@ More desktop details live in [docs/user/desktop.md](docs/user/desktop.md).
 - `npm run dev` - start the Vite dev server.
 - `npm run build` - build the web bundle.
 - `npm run preview` - preview the production web build.
-- `npm run test` - run calculation and Vitest tests.
+- `npm run test` - run the fast unit profile: calculation and Vitest tests.
 - `npm run test:vitest` - run Vitest tests for UI, persistence, services, and hooks.
 - `npm run test:e2e` - run Playwright browser workflow tests.
-- `npm run verify` - run the standard verification gate.
+- `npm run test:all` - run calculation, Vitest, and Playwright tests.
+- `npm run verify` - run the normalized web verification gate.
 - `npm run verify:desktop` - run desktop packaging verification.
 - `npm run release:check` - run the release-candidate gate.
 

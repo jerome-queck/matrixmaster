@@ -26,12 +26,13 @@ changelog.
 ## Release Candidate Gate
 
 `npm run release:check` is the canonical local release gate. It checks that
-`package.json` and `package-lock.json` agree on the version, runs tests,
-packages Electron artifacts, and verifies update metadata.
+`package.json` and `package-lock.json` agree on the version, runs calculation,
+Vitest, and Playwright browser workflow tests, packages Electron artifacts, and
+verifies update metadata.
 
 GitHub Actions also runs `Release Check` on macOS and Windows for PRs. Treat CI
-as the merge gate for release candidates because desktop packaging can differ by
-platform.
+as the merge gate for release candidates because browser and desktop packaging
+can differ by platform.
 
 ## Desktop Artifacts
 

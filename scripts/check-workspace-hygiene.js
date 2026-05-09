@@ -11,7 +11,10 @@ const ignoredDirectories = new Set([
   '.codex',
   'dist',
   'electron-dist',
-  'node_modules'
+  'node_modules',
+  'test-results',
+  'playwright-report',
+  'blob-report'
 ]);
 
 const duplicateNamePattern = /(?:^|[/\\])[^/\\]+ 2(?:\.[^/\\]+)?$/;
