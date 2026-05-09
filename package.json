@@ -13,6 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "postinstall": "patch-package",
+    "check:workspace": "node scripts/check-workspace-hygiene.js",
+    "clean:generated": "node scripts/clean-generated.js",
     "test": "npm run test:calc && npm run test:vitest",
     "verify": "bash scripts/verify.sh",
     "verify:desktop": "bash scripts/verify-desktop.sh",

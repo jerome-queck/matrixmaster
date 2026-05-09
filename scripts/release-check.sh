@@ -6,16 +6,22 @@ mkdir -p "$ELECTRON_BUILDER_CACHE"
 
 printf "\n== Matrix Master: release candidate check ==\n"
 
-printf "\n[1/4] Checking package version...\n"
+printf "\n[1/6] Cleaning generated outputs...\n"
+npm run clean:generated
+
+printf "\n[2/6] Checking workspace hygiene...\n"
+npm run check:workspace
+
+printf "\n[3/6] Checking package version...\n"
 node scripts/check-version.js
 
-printf "\n[2/4] Running tests...\n"
+printf "\n[4/6] Running tests...\n"
 npm run test
 
-printf "\n[3/4] Packaging desktop artifacts...\n"
+printf "\n[5/6] Packaging desktop artifacts...\n"
 npm run electron:dist -- --publish=never
 
-printf "\n[4/4] Checking release artifacts...\n"
+printf "\n[6/6] Checking release artifacts...\n"
 node scripts/check-release-artifacts.js
 
 printf "\nRelease candidate check complete.\n"

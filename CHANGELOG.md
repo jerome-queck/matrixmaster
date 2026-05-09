@@ -17,6 +17,8 @@ Source of truth:
 
 ## Unreleased
 ### Added
+- Added a workspace hygiene gate and generated-output cleanup command to catch
+  duplicate conflict files before verification passes.
 
 ### Changed
 - Consolidated primary route ownership into the core route registry while

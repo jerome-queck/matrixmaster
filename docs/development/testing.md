@@ -13,6 +13,10 @@ Use the scripts in `package.json`. The short version is:
 - `npm run build` - build the web bundle into `dist/`.
 - `npm run preview` - preview the production web build locally.
 - `npm run electron:dev` - run Electron with the Vite dev server.
+- `npm run check:workspace` - fail on stray desktop metadata or Finder/iCloud
+  duplicate conflict files in source-controlled areas.
+- `npm run clean:generated` - remove generated web, Electron, cache, and
+  desktop metadata outputs from the local workspace.
 
 ## Test Commands
 
@@ -23,10 +27,10 @@ Use the scripts in `package.json`. The short version is:
 
 ## Verification Commands
 
-- `npm run verify` - check package version metadata, run tests, and build the
-  web bundle.
-- `npm run verify:desktop` - package desktop artifacts through Electron and
-  check update metadata.
+- `npm run verify` - clean generated outputs, check workspace hygiene, check
+  package version metadata, run tests, and build the web bundle.
+- `npm run verify:desktop` - clean generated outputs, package desktop artifacts
+  through Electron, and check update metadata.
 - `npm run verify:full` - run both standard and desktop verification.
 - `npm run release:check` - check package and lockfile version metadata, run
   tests, package Electron artifacts, and check release metadata.
